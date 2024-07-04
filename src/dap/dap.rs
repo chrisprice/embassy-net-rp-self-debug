@@ -5,10 +5,9 @@ mod response;
 mod state;
 
 pub use command::*;
+use embassy_time::Timer;
 pub use request::*;
 pub use response::*;
-
-pub use embedded_hal::blocking::delay::DelayUs;
 
 use state::State;
 
@@ -21,7 +20,7 @@ pub trait DapLeds {
 }
 
 /// DAP handler.
-pub struct Dap<'a, DEPS, LEDS, WAIT, JTAG, SWD, SWO> {
+pub struct Dap<'a, DEPS, LEDS, JTAG, SWD, SWO> {
     state: State<DEPS, SWD, JTAG>,
     swo: Option<SWO>,
     swo_streaming: bool,
@@ -30,14 +29,12 @@ pub struct Dap<'a, DEPS, LEDS, WAIT, JTAG, SWD, SWO> {
     version_string: &'a str,
     // mode: Option<DapMode>,
     leds: LEDS,
-    wait: WAIT,
 }
 
-impl<'a, DEPS, LEDS, WAIT, JTAG, SWD, SWO> Dap<'a, DEPS, LEDS, WAIT, JTAG, SWD, SWO>
+impl<'a, DEPS, LEDS, JTAG, SWD, SWO> Dap<'a, DEPS, LEDS, JTAG, SWD, SWO>
 where
     DEPS: swj::Dependencies<SWD, JTAG>,
     LEDS: DapLeds,
-    WAIT: DelayUs<u32>,
     JTAG: jtag::Jtag<DEPS>,
     SWD: swd::Swd<DEPS>,
     SWO: swo::Swo,
@@ -46,7 +43,6 @@ where
     pub fn new(
         dependencies: DEPS,
         leds: LEDS,
-        wait: WAIT,
         swo: Option<SWO>,
         version_string: &'a str,
     ) -> Self {
@@ -62,14 +58,13 @@ where
             version_string,
             // mode: None,
             leds,
-            wait,
         }
     }
 
     /// Process a new CMSIS-DAP command from `report`.
     ///
     /// Returns number of bytes written to response buffer.
-    pub fn process_command(
+    pub async fn process_command(
         &mut self,
         report: &[u8],
         rbuf: &mut [u8],
@@ -90,7 +85,7 @@ where
             Command::DAP_Connect => self.process_connect(req, resp),
             Command::DAP_Disconnect => self.process_disconnect(req, resp),
             Command::DAP_WriteABORT => self.process_write_abort(req, resp),
-            Command::DAP_Delay => self.process_delay(req, resp),
+            Command::DAP_Delay => self.process_delay(req, resp).await,
             Command::DAP_ResetTarget => self.process_reset_target(req, resp),
             Command::DAP_SWJ_Pins => self.process_swj_pins(req, resp),
             Command::DAP_SWJ_Clock => self.process_swj_clock(req, resp),
@@ -298,9 +293,9 @@ where
         }
     }
 
-    fn process_delay(&mut self, mut req: Request, resp: &mut ResponseWriter) {
-        let delay = req.next_u16() as u32;
-        self.wait.delay_us(delay);
+    async fn process_delay<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
+        let delay = req.next_u16() as u64;
+        Timer::after_micros(delay).await;
         resp.write_ok();
     }
 
