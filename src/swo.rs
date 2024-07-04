@@ -1,8 +1,6 @@
 use crate::dap;
 
-struct Never();
-
-pub struct Swo(Never);
+pub enum Swo {}
 
 impl Swo {
     pub fn new() -> Option<Self> {
