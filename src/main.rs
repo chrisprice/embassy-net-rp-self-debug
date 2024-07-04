@@ -60,45 +60,53 @@ async fn main(spawner: Spawner) {
     let mut tx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
 
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-    socket.set_timeout(Some(Duration::from_secs(10)));
-
-    socket.accept(1234).await.expect("accept failed");
-
-    info!("Connected");
+    socket.set_timeout(Some(Duration::from_secs(30)));
 
     let mut dap = dap::dap::Dap::new(Swj::new(), DapLeds::new(), Swo::new(), "VERSION");
 
     loop {
-        let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+        info!("Waiting for connection");
 
-        info!("Waiting for request");
+        if let Err(_) = socket.accept(1234).await {
+            warn!("Failed to accept connection");
+            continue;
+        }
 
-        let n = match socket.read(&mut request_buffer).await {
-            Ok(0) => {
-                warn!("read EOF");
-                break;
-            }
-            Ok(n) => n,
-            Err(e) => {
-                warn!("read error: {:?}", e);
-                break;
-            }
-        };
+        info!("Connected");    
 
-        info!("Received {} bytes", n);
+        loop {
+            let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
 
-        let mut response_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
-        let n = dap.process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
-            .await;
+            info!("Waiting for request");
 
-        info!("Responding with {} bytes", n);
+            let n = match socket.read(&mut request_buffer).await {
+                Ok(0) => {
+                    warn!("read EOF");
+                    break;
+                }
+                Ok(n) => n,
+                Err(e) => {
+                    warn!("read error: {:?}", e);
+                    break;
+                }
+            };
 
-        match socket.write_all(&response_buffer[..n]).await {
-            Ok(()) => {}
-            Err(e) => {
-                warn!("write error: {:?}", e);
-                break;
-            }
-        };
+            info!("Received {} bytes", n);
+
+            let mut response_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+            let n = dap
+                .process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
+                .await;
+
+            info!("Responding with {} bytes", n);
+
+            match socket.write_all(&response_buffer[..n]).await {
+                Ok(()) => {}
+                Err(e) => {
+                    warn!("write error: {:?}", e);
+                    break;
+                }
+            };
+        }
     }
 }
