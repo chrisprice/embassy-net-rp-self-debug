@@ -1,12 +1,11 @@
 use cyw43_pio::PioSpi;
 use embassy_executor::Spawner;
-use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
+use embassy_net::{Config, DhcpConfig, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
 use embassy_rp::{
     clocks::RoscRng,
     gpio::Output,
     peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0},
 };
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 use heapless::Vec;
 use rand::RngCore;
@@ -17,12 +16,17 @@ pub enum Mode {
     Station,
 }
 
+pub enum Address {
+    Dhcp,
+    StaticV4(Ipv4Cidr),
+}
+
 pub async fn init_network(
     spawner: Spawner,
     mode: Mode,
     ssid: &'static str,
     passphrase: &'static str,
-    ip_address: Ipv4Cidr,
+    ip_address: Address,
     pio_spi: PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
     pwr: Output<'static, PIN_23>,
 ) -> &'static Stack<cyw43::NetDriver<'static>> {
@@ -40,11 +44,14 @@ pub async fn init_network(
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let config = Config::ipv4_static(StaticConfigV4 {
-        address: ip_address,
-        gateway: None,
-        dns_servers: Vec::new(),
-    });
+    let config = match ip_address {
+        Address::Dhcp => Config::dhcpv4(DhcpConfig::default()),
+        Address::StaticV4(ip_address) => Config::ipv4_static(StaticConfigV4 {
+            address: ip_address,
+            gateway: None,
+            dns_servers: Vec::new(),
+        }),
+    };
 
     static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();

@@ -15,7 +15,6 @@ use dap_leds::DapLeds;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Ipv4Cidr};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::PIO0;
@@ -51,7 +50,7 @@ async fn main(spawner: Spawner) {
         network::Mode::Station,
         env!("WIFI_SSID"),
         env!("WIFI_PASSPHRASE"),
-        Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 217), 24),
+        network::Address::Dhcp,
         spi,
         Output::new(p.PIN_23, Level::Low),
     )
