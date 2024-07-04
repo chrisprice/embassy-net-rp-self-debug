@@ -12,7 +12,7 @@ pub use embedded_hal::blocking::delay::DelayUs;
 
 use state::State;
 
-use super::{jtag, swd, swj, swo};
+use super::{jtag, swd, swj, swo, usb};
 
 /// LED control trait.
 pub trait DapLeds {
