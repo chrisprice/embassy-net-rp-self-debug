@@ -2,9 +2,16 @@
 #![no_main]
 
 mod dap;
+mod dap_leds;
+mod jtag;
 mod network;
+mod swd;
+mod swj;
+mod swo;
 
 use cyw43_pio::PioSpi;
+use dap::dap::DapVersion;
+use dap_leds::DapLeds;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
@@ -15,6 +22,8 @@ use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::Duration;
 use embedded_io_async::Write;
+use swj::Swj;
+use swo::Swo;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -48,42 +57,41 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
+    let mut rx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+    let mut tx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    socket.set_timeout(Some(Duration::from_secs(10)));
+
+    socket.accept(1234).await.expect("accept failed");
+
+    let mut dap = dap::dap::Dap::new(Swj::new(), DapLeds::new(), Swo::new(), "VERSION");
+
     loop {
-        let mut buf = [0; dap::usb::DAP2_PACKET_SIZE as usize];
-        let mut rx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
-        let mut tx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+        let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
 
-        let mut socket = TcpSocket::new(
-            stack,
-            &mut rx_buffer,
-            &mut tx_buffer,
-        );
-        socket.set_timeout(Some(Duration::from_secs(10)));
+        let n = match socket.read(&mut request_buffer).await {
+            Ok(0) => {
+                warn!("read EOF");
+                break;
+            }
+            Ok(n) => n,
+            Err(e) => {
+                warn!("read error: {:?}", e);
+                break;
+            }
+        };
 
-        socket.accept(1234).await.expect("accept failed");
+        let mut response_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+        let n = dap.process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
+            .await;
 
-        loop {
-            let n = match socket.read(&mut buf).await {
-                Ok(0) => {
-                    warn!("read EOF");
-                    break;
-                }
-                Ok(n) => n,
-                Err(e) => {
-                    warn!("read error: {:?}", e);
-                    break;
-                }
-            };
-
-            let x = &buf[..n];
-
-            match socket.write_all(&buf[..n]).await {
-                Ok(()) => {}
-                Err(e) => {
-                    warn!("write error: {:?}", e);
-                    break;
-                }
-            };
-        }
+        match socket.write_all(&response_buffer[..n]).await {
+            Ok(()) => {}
+            Err(e) => {
+                warn!("write error: {:?}", e);
+                break;
+            }
+        };
     }
 }
