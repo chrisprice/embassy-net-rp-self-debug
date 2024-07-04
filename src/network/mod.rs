@@ -54,11 +54,11 @@ pub async fn init_network(
     };
 
     static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
     let stack = &*STACK.init(Stack::new(
         net_device,
         config,
-        RESOURCES.init(StackResources::<2>::new()),
+        RESOURCES.init(StackResources::<8>::new()),
         RoscRng.next_u64(),
     ));
 

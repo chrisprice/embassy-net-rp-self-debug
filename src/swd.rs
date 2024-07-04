@@ -3,7 +3,7 @@ use crate::{dap, swj::Swj};
 pub struct Swd();
 
 impl dap::swd::Swd<Swj> for Swd {
-    const AVAILABLE: bool = false;
+    const AVAILABLE: bool = true;
 
     fn read_inner(&mut self, apndp: dap::swd::APnDP, a: dap::swd::DPRegister) -> dap::swd::Result<u32> {
         todo!()

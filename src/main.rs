@@ -64,10 +64,14 @@ async fn main(spawner: Spawner) {
 
     socket.accept(1234).await.expect("accept failed");
 
+    info!("Connected");
+
     let mut dap = dap::dap::Dap::new(Swj::new(), DapLeds::new(), Swo::new(), "VERSION");
 
     loop {
         let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+
+        info!("Waiting for request");
 
         let n = match socket.read(&mut request_buffer).await {
             Ok(0) => {
@@ -81,9 +85,13 @@ async fn main(spawner: Spawner) {
             }
         };
 
+        info!("Received {} bytes", n);
+
         let mut response_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
         let n = dap.process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
             .await;
+
+        info!("Responding with {} bytes", n);
 
         match socket.write_all(&response_buffer[..n]).await {
             Ok(()) => {}
