@@ -109,5 +109,8 @@ async fn main(spawner: Spawner) {
                 }
             };
         }
+
+        socket.abort();
+        socket.flush().await;
     }
 }
