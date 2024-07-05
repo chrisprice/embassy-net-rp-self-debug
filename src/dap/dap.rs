@@ -83,7 +83,7 @@ where
             Command::DAP_ResetTarget => self.process_reset_target(req, resp),
             Command::DAP_SWJ_Pins => self.process_swj_pins(req, resp),
             Command::DAP_SWJ_Clock => self.process_swj_clock(req, resp),
-            Command::DAP_SWJ_Sequence => self.process_swj_sequence(req, resp),
+            Command::DAP_SWJ_Sequence => self.process_swj_sequence(req, resp).await,
             Command::DAP_SWD_Configure => self.process_swd_configure(req, resp),
             Command::DAP_SWD_Sequence => self.process_swd_sequence(req, resp),
             Command::DAP_SWO_Transport => self.process_swo_transport(req, resp),
@@ -331,7 +331,7 @@ where
         }
     }
 
-    fn process_swj_sequence(&mut self, mut req: Request, resp: &mut ResponseWriter) {
+    async fn process_swj_sequence<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
         let nbits: usize = match req.next_u8() {
             // CMSIS-DAP says 0 means 256 bits
             0 => 256,
@@ -351,7 +351,7 @@ where
         self.state.to_none();
 
         if let State::None { deps, .. } = &mut self.state {
-            deps.process_swj_sequence(seq, nbits);
+            deps.process_swj_sequence(seq, nbits).await;
         } else {
             unreachable!();
         }

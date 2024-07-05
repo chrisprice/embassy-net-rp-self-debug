@@ -9,8 +9,8 @@ pub struct Swd {
     max_frequency: u32,
     cpu_frequency: u32,
     cycles_per_us: u32,
-    half_period_ticks: u32,
-    dbgforce: Reg<Dbgforce, RW>,
+    pub(super) half_period_ticks: u32,
+    pub(super) dbgforce: Reg<Dbgforce, RW>,
 }
 
 impl Swd {

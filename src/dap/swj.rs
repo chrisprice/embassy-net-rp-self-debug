@@ -28,7 +28,7 @@ pub trait Dependencies<SWD, JTAG>: From<SWD> + From<JTAG> {
     fn process_swj_pins(&mut self, output: Pins, mask: Pins, wait_us: u32) -> Pins;
 
     /// Runner for SWJ_Pins commands.
-    fn process_swj_sequence(&mut self, data: &[u8], nbits: usize);
+    async fn process_swj_sequence(&mut self, data: &[u8], nbits: usize);
 
     /// Set the maximum clock frequency, return `true` if it is valid.
     fn process_swj_clock(&mut self, max_frequency: u32) -> bool;

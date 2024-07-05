@@ -1,3 +1,6 @@
+use defmt::trace;
+use embassy_time::{Duration, Ticker};
+
 use crate::{dap, jtag::Jtag, swd::Swd};
 
 pub struct Swj {
@@ -20,8 +23,29 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
         todo!()
     }
 
-    fn process_swj_sequence(&mut self, data: &[u8], nbits: usize) {
-        todo!()
+    async fn process_swj_sequence(&mut self, data: &[u8], mut bits: usize) {
+        let mut ticker = Ticker::every(Duration::from_ticks(self.swd.half_period_ticks as u64));
+        ticker.next().await;
+
+        trace!("Running SWJ sequence: {:08b}, len = {}", data, bits);
+        for byte in data {
+            let mut byte = *byte;
+            let frame_bits = core::cmp::min(bits, 8);
+            for _ in 0..frame_bits {
+                let bit = byte & 1;
+                byte >>= 1;
+                if bit != 0 {
+                    self.swd.dbgforce.modify(|r| r.set_proc1_swdi(true));
+                } else {
+                    self.swd.dbgforce.modify(|r| r.set_proc1_swdi(false));
+                }
+                self.swd.dbgforce.modify(|r| r.set_proc1_swclk(false));
+                ticker.next().await;
+                self.swd.dbgforce.modify(|r| r.set_proc1_swclk(true));
+                ticker.next().await;
+            }
+            bits -= frame_bits;
+        }
     }
 
     fn process_swj_clock(&mut self, max_frequency: u32) -> bool {
@@ -34,8 +58,8 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
 }
 
 impl From<Swd> for Swj {
-    fn from(_: Swd) -> Self {
-        todo!()
+    fn from(swd: Swd) -> Self {
+        Self { swd }
     }
 }
 
