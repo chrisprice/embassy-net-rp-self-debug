@@ -53,7 +53,7 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
     }
 
     fn high_impedance_mode(&mut self) {
-        todo!()
+        self.swd.dbgforce.modify(|r| r.set_proc1_attach(false));
     }
 }
 
