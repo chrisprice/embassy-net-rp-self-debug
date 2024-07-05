@@ -28,6 +28,12 @@ impl Swd {
     }
 }
 
+impl Drop for Swd {
+    fn drop(&mut self) {
+        self.dbgforce.modify(|r| r.set_proc1_attach(false));
+    }
+}
+
 impl dap::swd::Swd<Swj> for Swd {
     const AVAILABLE: bool = true;
 
