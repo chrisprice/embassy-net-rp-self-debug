@@ -1,4 +1,5 @@
 use cyw43_pio::PioSpi;
+use defmt::error;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
 use embassy_rp::{
@@ -66,15 +67,24 @@ pub async fn init_network(
 
     spawner.must_spawn(net_task(stack));
 
-    match mode {
-        Mode::AccessPoint { channel } => {
-            control.start_ap_wpa2(ssid, passphrase, channel).await;
-        }
-        Mode::Station => {
-            control
-                .join_wpa2(ssid, passphrase)
-                .await
-                .expect("join failed");
+    loop {
+        match mode {
+            Mode::AccessPoint { channel } => {
+                control.start_ap_wpa2(ssid, passphrase, channel).await;
+                break;
+            }
+            Mode::Station => {
+                let r = control
+                    .join_wpa2(ssid, passphrase)
+                    .await;
+
+                match r {
+                    Ok(_) => break,
+                    Err(e) => {
+                        error!("couldn't join {}: status={}, retrying...", ssid, e.status);
+                    }
+                }
+            }
         }
     }
 
