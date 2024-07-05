@@ -15,10 +15,11 @@ use dap_leds::DapLeds;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
+use embassy_rp::pac::SYSCFG;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::{bind_interrupts, clocks};
 use embassy_time::Duration;
 use embedded_io_async::Write;
 use swj::Swj;
@@ -62,7 +63,8 @@ async fn main(spawner: Spawner) {
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
 
-    let mut dap = dap::dap::Dap::new(Swj::new(), DapLeds::new(), Swo::new(), "VERSION");
+    let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
+    let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
 
     loop {
         info!("Waiting for connection");
@@ -72,7 +74,7 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        info!("Connected");    
+        info!("Connected");
 
         loop {
             let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];

@@ -1,10 +1,12 @@
 use crate::{dap, jtag::Jtag, swd::Swd};
 
-pub struct Swj();
+pub struct Swj {
+    pub(super) swd: Swd,
+}
 
 impl Swj {
-    pub fn new() -> Self {
-        Self()
+    pub fn new(swd: Swd) -> Self {
+        Self { swd }
     }
 }
 
