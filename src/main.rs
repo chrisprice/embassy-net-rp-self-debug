@@ -16,6 +16,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_rp::gpio::{Level, Output};
+use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::pac::SYSCFG;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
@@ -31,10 +32,22 @@ bind_interrupts!(struct Irqs0 {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
+static mut CORE1_STACK: Stack<4096> = Stack::new();
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Start");
     let p = embassy_rp::init(Default::default());
+
+    spawn_core1(
+        p.CORE1,
+        unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+        move || {
+            loop {
+                cortex_m::asm::nop();
+            }
+        },
+    );
 
     let mut pio = Pio::new(p.PIO0, Irqs0);
     let spi = PioSpi::new(
