@@ -9,23 +9,23 @@ impl Swo {
 }
 
 impl dap::swo::Swo for Swo {
-    fn set_transport(&mut self, transport: dap::swo::SwoTransport) {
+    fn set_transport(&mut self, _transport: dap::swo::SwoTransport) {
         todo!()
     }
 
-    fn set_mode(&mut self, mode: dap::swo::SwoMode) {
+    fn set_mode(&mut self, _mode: dap::swo::SwoMode) {
         todo!()
     }
 
-    fn set_baudrate(&mut self, baudrate: u32) -> u32 {
+    fn set_baudrate(&mut self, _baudrate: u32) -> u32 {
         todo!()
     }
 
-    fn set_control(&mut self, control: dap::swo::SwoControl) {
+    fn set_control(&mut self, _control: dap::swo::SwoControl) {
         todo!()
     }
 
-    fn polling_data(&mut self, buf: &mut [u8]) -> u32 {
+    fn polling_data(&mut self, _buf: &mut [u8]) -> u32 {
         todo!()
     }
 

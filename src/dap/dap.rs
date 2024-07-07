@@ -10,7 +10,10 @@ pub use response::*;
 
 use state::State;
 
-use super::{jtag, swd, swj, swo, usb};
+use super::{jtag, swd, swj, swo};
+
+pub const DAP1_PACKET_SIZE: u16 = 64;
+pub const DAP2_PACKET_SIZE: u16 = 512;
 
 /// LED control trait.
 pub trait DapLeds {
@@ -179,11 +182,11 @@ where
                 match version {
                     DapVersion::V1 => {
                         // Maximum of 64 bytes per packet
-                        resp.write_u16(usb::DAP1_PACKET_SIZE);
+                        resp.write_u16(DAP1_PACKET_SIZE);
                     }
                     DapVersion::V2 => {
                         // Maximum of 512 bytes per packet
-                        resp.write_u16(usb::DAP2_PACKET_SIZE);
+                        resp.write_u16(DAP2_PACKET_SIZE);
                     }
                 }
             }

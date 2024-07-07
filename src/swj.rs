@@ -16,9 +16,9 @@ impl Swj {
 impl dap::swj::Dependencies<Swd, Jtag> for Swj {
     fn process_swj_pins(
         &mut self,
-        output: crate::dap::swj::Pins,
-        mask: crate::dap::swj::Pins,
-        wait_us: u32,
+        _output: crate::dap::swj::Pins,
+        _mask: crate::dap::swj::Pins,
+        _wait_us: u32,
     ) -> crate::dap::swj::Pins {
         todo!()
     }
@@ -50,7 +50,7 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
         }
     }
 
-    fn process_swj_clock(&mut self, max_frequency: u32) -> bool {
+    fn process_swj_clock(&mut self, _max_frequency: u32) -> bool {
         todo!()
     }
 

@@ -22,7 +22,7 @@ use embassy_rp::pac::SYSCFG;
 use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, clocks};
-use embassy_time::{Duration, Timer};
+use embassy_time::Duration;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
 use swj::Swj;
@@ -84,8 +84,8 @@ async fn core0_task(
     )
     .await;
 
-    let mut rx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
-    let mut tx_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+    let mut rx_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
+    let mut tx_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
 
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
@@ -95,7 +95,7 @@ async fn core0_task(
 
     loop {
         info!("Waiting for connection");
-        if let Err(_) = socket.accept(1234).await {
+        if socket.accept(1234).await.is_err() {
             warn!("Failed to accept connection");
             continue;
         }
@@ -103,7 +103,7 @@ async fn core0_task(
         info!("Connected");
 
         loop {
-            let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+            let mut request_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
 
             info!("Waiting for request");
 
@@ -121,7 +121,7 @@ async fn core0_task(
 
             info!("Received {} bytes", n);
 
-            let mut response_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
+            let mut response_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
             let n = dap
                 .process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
                 .await;

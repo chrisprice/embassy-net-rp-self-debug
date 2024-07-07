@@ -42,6 +42,7 @@ pub struct SwoStatus {
     pub bytes_available: u32,
 }
 
+#[allow(dead_code)]
 pub trait Swo {
     fn set_transport(&mut self, transport: SwoTransport);
     fn set_mode(&mut self, mode: SwoMode);

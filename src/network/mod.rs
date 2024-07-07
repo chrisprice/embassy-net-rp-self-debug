@@ -11,11 +11,13 @@ use heapless::Vec;
 use rand::RngCore;
 use static_cell::StaticCell;
 
+#[allow(dead_code)]
 pub enum Mode {
     AccessPoint { channel: u8 },
     Station,
 }
 
+#[allow(dead_code)]
 pub enum Address {
     Dhcp,
     StaticV4(Ipv4Cidr),
