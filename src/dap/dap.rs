@@ -10,7 +10,7 @@ pub use response::*;
 
 use state::State;
 
-use super::{jtag, swd, swj, swo};
+use super::{jtag, swd, swj};
 
 pub const DAP1_PACKET_SIZE: u16 = 64;
 pub const DAP2_PACKET_SIZE: u16 = 512;
@@ -22,10 +22,8 @@ pub trait DapLeds {
 }
 
 /// DAP handler.
-pub struct Dap<'a, DEPS, LEDS, JTAG, SWD, SWO> {
+pub struct Dap<'a, DEPS, LEDS, JTAG, SWD> {
     state: State<DEPS, SWD, JTAG>,
-    swo: Option<SWO>,
-    swo_streaming: bool,
     swd_wait_retries: usize,
     match_retries: usize,
     version_string: &'a str,
@@ -33,23 +31,20 @@ pub struct Dap<'a, DEPS, LEDS, JTAG, SWD, SWO> {
     leds: LEDS,
 }
 
-impl<'a, DEPS, LEDS, JTAG, SWD, SWO> Dap<'a, DEPS, LEDS, JTAG, SWD, SWO>
+impl<'a, DEPS, LEDS, JTAG, SWD> Dap<'a, DEPS, LEDS, JTAG, SWD>
 where
     DEPS: swj::Dependencies<SWD, JTAG>,
     LEDS: DapLeds,
     JTAG: jtag::Jtag<DEPS>,
     SWD: swd::Swd<DEPS>,
-    SWO: swo::Swo,
 {
     /// Create a Dap handler
-    pub fn new(dependencies: DEPS, leds: LEDS, swo: Option<SWO>, version_string: &'a str) -> Self {
+    pub fn new(dependencies: DEPS, leds: LEDS, version_string: &'a str) -> Self {
         // TODO: Replace with const assert
         assert!(SWD::AVAILABLE || JTAG::AVAILABLE);
 
         Dap {
             state: State::new(dependencies),
-            swo,
-            swo_streaming: false,
             swd_wait_retries: 5,
             match_retries: 8,
             version_string,
@@ -89,13 +84,13 @@ where
             Command::DAP_SWJ_Sequence => self.process_swj_sequence(req, resp).await,
             Command::DAP_SWD_Configure => self.process_swd_configure(req, resp),
             Command::DAP_SWD_Sequence => self.process_swd_sequence(req, resp),
-            Command::DAP_SWO_Transport => self.process_swo_transport(req, resp),
-            Command::DAP_SWO_Mode => self.process_swo_mode(req, resp),
-            Command::DAP_SWO_Baudrate => self.process_swo_baudrate(req, resp),
-            Command::DAP_SWO_Control => self.process_swo_control(req, resp),
-            Command::DAP_SWO_Status => self.process_swo_status(req, resp),
-            Command::DAP_SWO_ExtendedStatus => self.process_swo_extended_status(req, resp),
-            Command::DAP_SWO_Data => self.process_swo_data(req, resp),
+            Command::DAP_SWO_Transport => todo!(),
+            Command::DAP_SWO_Mode => todo!(),
+            Command::DAP_SWO_Baudrate => todo!(),
+            Command::DAP_SWO_Control => todo!(),
+            Command::DAP_SWO_Status => todo!(),
+            Command::DAP_SWO_ExtendedStatus => todo!(),
+            Command::DAP_SWO_Data => todo!(),
             Command::DAP_JTAG_Configure => self.process_jtag_configure(req, resp),
             Command::DAP_JTAG_IDCODE => self.process_jtag_idcode(req, resp),
             Command::DAP_JTAG_Sequence => self.process_jtag_sequence(req, resp),
@@ -153,23 +148,14 @@ where
                 // Bit 6: SWO Streaming Trace supported
                 let swd = (SWD::AVAILABLE as u8) << 0;
                 let jtag = (JTAG::AVAILABLE as u8) << 1;
-                let swo = match &self.swo {
-                    Some(swo) => {
-                        let support = swo.support();
-                        (support.uart as u8) << 2 | (support.manchester as u8) << 3
-                    }
-                    None => 0,
-                };
+                let swo = 0 << 2 | 0 << 3;
                 let atomic = 0 << 4;
-                let swo_streaming = 1 << 6;
+                let swo_streaming = 0 << 6;
                 resp.write_u8(swd | jtag | swo | atomic | swo_streaming);
             }
             Ok(DapInfoID::SWOTraceBufferSize) => {
                 resp.write_u8(4);
-                let size = match &self.swo {
-                    Some(swo) => swo.buffer_size(),
-                    None => 0,
-                };
+                let size = 0;
                 resp.write_u32(size as u32);
             }
             Ok(DapInfoID::MaxPacketCount) => {
@@ -376,135 +362,6 @@ where
 
     fn process_swd_sequence(&self, _req: Request, _resp: &mut ResponseWriter) {
         // TODO: Needs implementing
-    }
-
-    fn process_swo_transport(&mut self, mut req: Request, resp: &mut ResponseWriter) {
-        let transport = req.next_u8();
-        match swo::SwoTransport::try_from(transport) {
-            Ok(swo::SwoTransport::None) | Ok(swo::SwoTransport::DAPCommand) => {
-                self.swo_streaming = false;
-                resp.write_ok();
-            }
-            Ok(swo::SwoTransport::USBEndpoint) => {
-                self.swo_streaming = true;
-                resp.write_ok();
-            }
-            _ => resp.write_err(),
-        }
-    }
-
-    fn process_swo_mode(&mut self, mut req: Request, resp: &mut ResponseWriter) {
-        let mode = req.next_u8();
-
-        let swo = if let Some(swo) = &mut self.swo {
-            swo
-        } else {
-            resp.write_err();
-            return;
-        };
-
-        match swo::SwoMode::try_from(mode) {
-            Ok(mode) => {
-                swo.set_mode(mode);
-                resp.write_ok();
-            }
-            _ => resp.write_err(),
-        }
-    }
-
-    fn process_swo_baudrate(&mut self, mut req: Request, resp: &mut ResponseWriter) {
-        let target = req.next_u32();
-        let actual = if let Some(swo) = &mut self.swo {
-            swo.set_baudrate(target)
-        } else {
-            0
-        };
-        resp.write_u32(actual);
-    }
-
-    fn process_swo_control(&mut self, mut req: Request, resp: &mut ResponseWriter) {
-        let swo = if let Some(swo) = &mut self.swo {
-            swo
-        } else {
-            resp.write_err();
-            return;
-        };
-
-        match swo::SwoControl::try_from(req.next_u8()) {
-            Ok(control) => {
-                swo.set_control(control);
-                resp.write_ok();
-            }
-            _ => resp.write_err(),
-        }
-    }
-
-    fn process_swo_status(&mut self, _req: Request, resp: &mut ResponseWriter) {
-        // Trace status:
-        // Bit 0: trace capture active
-        // Bit 6: trace stream error (always written as 0)
-        // Bit 7: trace buffer overflow (always written as 0)
-        let (active, len) = if let Some(swo) = &self.swo {
-            (swo.is_active(), swo.bytes_available())
-        } else {
-            (false, 0)
-        };
-
-        resp.write_u8(active as u8);
-        // Trace count: remaining bytes in buffer
-        resp.write_u32(len);
-    }
-
-    fn process_swo_extended_status(&mut self, _req: Request, resp: &mut ResponseWriter) {
-        // Trace status:
-        // Bit 0: trace capture active
-        // Bit 6: trace stream error (always written as 0)
-        // Bit 7: trace buffer overflow (always written as 0)
-        let (active, len) = if let Some(swo) = &self.swo {
-            (swo.is_active(), swo.bytes_available())
-        } else {
-            (false, 0)
-        };
-        resp.write_u8(active as u8);
-        // Trace count: remaining bytes in buffer.
-        resp.write_u32(len);
-        // Index: sequence number of next trace. Always written as 0.
-        resp.write_u32(0);
-        // TD_TimeStamp: test domain timer value for trace sequence
-        resp.write_u32(0);
-    }
-
-    fn process_swo_data(&mut self, mut req: Request, resp: &mut ResponseWriter) {
-        let active = if let Some(swo) = &mut self.swo {
-            swo.is_active()
-        } else {
-            false
-        };
-
-        // Write status byte to response
-        resp.write_u8(active as u8);
-
-        // Skip length for now
-        resp.skip(2);
-
-        let mut buf = resp.remaining();
-
-        // Limit maximum return size to maximum requested bytes
-        let n = req.next_u16() as usize;
-        if buf.len() > n {
-            buf = &mut buf[..n];
-        }
-
-        // Read data from UART
-        let len = if let Some(swo) = &mut self.swo {
-            swo.polling_data(&mut buf)
-        } else {
-            0
-        };
-        resp.skip(len as _);
-
-        // Go back and write length
-        resp.write_u16_at(2, len as u16);
     }
 
     fn process_jtag_sequence(&mut self, req: Request, resp: &mut ResponseWriter) {

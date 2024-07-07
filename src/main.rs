@@ -7,7 +7,6 @@ mod jtag;
 mod network;
 mod swd;
 mod swj;
-mod swo;
 
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
@@ -26,7 +25,6 @@ use embassy_time::Duration;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
 use swj::Swj;
-use swo::Swo;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -91,7 +89,7 @@ async fn core0_task(
     socket.set_timeout(Some(Duration::from_secs(30)));
 
     let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
-    let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
+    let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), "VERSION");
 
     loop {
         info!("Waiting for connection");
