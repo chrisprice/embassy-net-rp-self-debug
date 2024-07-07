@@ -1,8 +1,7 @@
-use crate::dap::{jtag, swd, swj};
-
+use crate::dap::{swd, swj};
 
 /// State machine of the Dap handler
-pub enum State<DEPS, SWD, JTAG> {
+pub enum State<DEPS, SWD> {
     /// State that _should_ never happen.
     ///
     /// Assumption: No one tries to "somehow" catch the `From::from` panic for
@@ -18,8 +17,6 @@ pub enum State<DEPS, SWD, JTAG> {
     },
     /// SWD mode
     Swd(SWD),
-    /// JTAG mode
-    Jtag(JTAG),
 }
 
 /// Plain enum describing the current state
@@ -29,14 +26,12 @@ pub enum State<DEPS, SWD, JTAG> {
 pub enum DynState {
     None,
     Swd,
-    Jtag,
 }
 
-impl<DEPS, SWD, JTAG> State<DEPS, SWD, JTAG>
+impl<DEPS, SWD> State<DEPS, SWD>
 where
-    DEPS: swj::Dependencies<SWD, JTAG>,
+    DEPS: swj::Dependencies<SWD>,
     SWD: swd::Swd<DEPS>,
-    JTAG: jtag::Jtag<DEPS>,
 {
     /// Change the clock configuration
     pub fn set_clock(&mut self, max_frequency: u32) -> bool {
@@ -47,17 +42,15 @@ where
             // Switch to `None` and back will be probably necessary and this is also
             // what should be done here?
             State::Swd(v) => v.set_clock(max_frequency),
-            State::Jtag(v) => v.set_clock(max_frequency),
             State::Invalid => unreachable!(),
         }
     }
 }
 
-impl<DEPS, SWD, JTAG> State<DEPS, SWD, JTAG>
+impl<DEPS, SWD> State<DEPS, SWD>
 where
-    DEPS: From<SWD> + From<JTAG>,
+    DEPS: From<SWD>,
     SWD: From<DEPS>,
-    JTAG: From<DEPS>,
 {
     /// Construct an instance of [`State`] object
     pub fn new(deps: DEPS) -> Self {
@@ -78,10 +71,6 @@ where
                     deps: v.into(),
                     mode_to_restore: DynState::Swd,
                 },
-                State::Jtag(v) => State::None {
-                    deps: v.into(),
-                    mode_to_restore: DynState::Jtag,
-                },
                 State::Invalid | State::None { .. } => unreachable!(),
             }),
         }
@@ -92,7 +81,7 @@ where
     /// Useful for commands that do the proper data transmition in SWD/JTAG mode
     pub fn to_last_mode(&mut self) {
         match self {
-            State::Swd(_) | State::Jtag(_) => {}
+            State::Swd(_) => {}
             state @ State::None { .. } => state.replace_with(|s| match s {
                 State::None {
                     mode_to_restore,
@@ -103,9 +92,8 @@ where
                         deps,
                     },
                     DynState::Swd => State::Swd(deps.into()),
-                    DynState::Jtag => State::Jtag(deps.into()),
                 },
-                State::Swd(_) | State::Jtag(_) | State::Invalid => unreachable!(),
+                State::Swd(_) | State::Invalid => unreachable!(),
             }),
             State::Invalid => unreachable!(),
         }
@@ -119,22 +107,7 @@ where
             State::Swd(_) => {}
             state => state.replace_with(|s| match s {
                 State::None { deps, .. } => State::Swd(deps.into()),
-                State::Jtag(v) => State::Swd(DEPS::from(v).into()),
                 State::Swd(_) | State::Invalid => unreachable!(),
-            }),
-        }
-    }
-
-    /// Force the state transition to JTAG.
-    ///
-    /// Useful for commands that specify the transmission protocol to be JTAG.
-    pub fn to_jtag(&mut self) {
-        match self {
-            State::Jtag(_) => {}
-            state => state.replace_with(|s| match s {
-                State::None { deps, .. } => State::Jtag(deps.into()),
-                State::Swd(v) => State::Jtag(DEPS::from(v).into()),
-                State::Jtag(_) | State::Invalid => unreachable!(),
             }),
         }
     }

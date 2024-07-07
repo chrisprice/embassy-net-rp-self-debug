@@ -1,6 +1,6 @@
 use defmt::trace;
 
-use crate::{dap, jtag::Jtag, swd::Swd};
+use crate::{dap, swd::Swd};
 
 pub struct Swj {
     pub(super) swd: Swd,
@@ -12,7 +12,7 @@ impl Swj {
     }
 }
 
-impl dap::swj::Dependencies<Swd, Jtag> for Swj {
+impl dap::swj::Dependencies<Swd> for Swj {
     fn process_swj_pins(
         &mut self,
         _output: crate::dap::swj::Pins,
@@ -60,11 +60,5 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
 impl From<Swd> for Swj {
     fn from(swd: Swd) -> Self {
         Self { swd }
-    }
-}
-
-impl From<Jtag> for Swj {
-    fn from(_: Jtag) -> Self {
-        todo!()
     }
 }

@@ -112,11 +112,4 @@ pub enum ConnectPort {
 pub enum ConnectPortResponse {
     Failed = 0,
     SWD = 1,
-    JTAG = 2,
-}
-
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum DapMode {
-    SWD,
-    JTAG,
 }

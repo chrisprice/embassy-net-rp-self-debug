@@ -23,7 +23,7 @@ bitflags! {
 /// [`crate::Dap`]
 ///
 /// User has to provide implementations of SWJ_{Pins, Sequence, Clock} commands
-pub trait Dependencies<SWD, JTAG>: From<SWD> + From<JTAG> {
+pub trait Dependencies<SWD>: From<SWD> {
     /// Runner for SWJ_Pins commands.
     fn process_swj_pins(&mut self, output: Pins, mask: Pins, wait_us: u32) -> Pins;
 

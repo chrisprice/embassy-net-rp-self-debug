@@ -3,7 +3,6 @@
 
 mod dap;
 mod dap_leds;
-mod jtag;
 mod network;
 mod swd;
 mod swj;

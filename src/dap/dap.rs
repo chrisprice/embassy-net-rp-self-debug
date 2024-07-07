@@ -10,7 +10,7 @@ pub use response::*;
 
 use state::State;
 
-use super::{jtag, swd, swj};
+use super::{swd, swj};
 
 pub const DAP1_PACKET_SIZE: u16 = 64;
 pub const DAP2_PACKET_SIZE: u16 = 512;
@@ -22,8 +22,8 @@ pub trait DapLeds {
 }
 
 /// DAP handler.
-pub struct Dap<'a, DEPS, LEDS, JTAG, SWD> {
-    state: State<DEPS, SWD, JTAG>,
+pub struct Dap<'a, DEPS, LEDS, SWD> {
+    state: State<DEPS, SWD>,
     swd_wait_retries: usize,
     match_retries: usize,
     version_string: &'a str,
@@ -31,17 +31,15 @@ pub struct Dap<'a, DEPS, LEDS, JTAG, SWD> {
     leds: LEDS,
 }
 
-impl<'a, DEPS, LEDS, JTAG, SWD> Dap<'a, DEPS, LEDS, JTAG, SWD>
+impl<'a, DEPS, LEDS, SWD> Dap<'a, DEPS, LEDS, SWD>
 where
-    DEPS: swj::Dependencies<SWD, JTAG>,
+    DEPS: swj::Dependencies<SWD>,
     LEDS: DapLeds,
-    JTAG: jtag::Jtag<DEPS>,
     SWD: swd::Swd<DEPS>,
 {
     /// Create a Dap handler
     pub fn new(dependencies: DEPS, leds: LEDS, version_string: &'a str) -> Self {
-        // TODO: Replace with const assert
-        assert!(SWD::AVAILABLE || JTAG::AVAILABLE);
+        assert!(SWD::AVAILABLE);
 
         Dap {
             state: State::new(dependencies),
@@ -83,7 +81,7 @@ where
             Command::DAP_SWJ_Clock => self.process_swj_clock(req, resp),
             Command::DAP_SWJ_Sequence => self.process_swj_sequence(req, resp).await,
             Command::DAP_SWD_Configure => self.process_swd_configure(req, resp),
-            Command::DAP_SWD_Sequence => self.process_swd_sequence(req, resp),
+            Command::DAP_SWD_Sequence => todo!(),
             Command::DAP_SWO_Transport => todo!(),
             Command::DAP_SWO_Mode => todo!(),
             Command::DAP_SWO_Baudrate => todo!(),
@@ -91,9 +89,9 @@ where
             Command::DAP_SWO_Status => todo!(),
             Command::DAP_SWO_ExtendedStatus => todo!(),
             Command::DAP_SWO_Data => todo!(),
-            Command::DAP_JTAG_Configure => self.process_jtag_configure(req, resp),
-            Command::DAP_JTAG_IDCODE => self.process_jtag_idcode(req, resp),
-            Command::DAP_JTAG_Sequence => self.process_jtag_sequence(req, resp),
+            Command::DAP_JTAG_Configure => todo!(),
+            Command::DAP_JTAG_IDCODE => todo!(),
+            Command::DAP_JTAG_Sequence => todo!(),
             Command::DAP_TransferConfigure => self.process_transfer_configure(req, resp),
             Command::DAP_Transfer => self.process_transfer(req, resp).await,
             Command::DAP_TransferBlock => self.process_transfer_block(req, resp).await,
@@ -102,8 +100,8 @@ where
                 // Do not send a response for transfer abort commands
                 return 0;
             }
-            Command::DAP_ExecuteCommands => self.process_execute_commands(req, resp),
-            Command::DAP_QueueCommands => self.process_queue_commands(req, resp),
+            Command::DAP_ExecuteCommands => todo!(),
+            Command::DAP_QueueCommands => todo!(),
             Command::Unimplemented => {}
         }
 
@@ -147,7 +145,7 @@ where
                 // Bit 5: Test Domain Timer not supported
                 // Bit 6: SWO Streaming Trace supported
                 let swd = (SWD::AVAILABLE as u8) << 0;
-                let jtag = (JTAG::AVAILABLE as u8) << 1;
+                let jtag = 0 << 1;
                 let swo = 0 << 2 | 0 << 3;
                 let atomic = 0 << 4;
                 let swo_streaming = 0 << 6;
@@ -213,31 +211,20 @@ where
         // JTAG::AVAILABLE
         // );
 
-        match (SWD::AVAILABLE, JTAG::AVAILABLE, port) {
+        match (SWD::AVAILABLE, port) {
             // SWD
-            (true, true, ConnectPort::Default)
-            | (true, true, ConnectPort::SWD)
-            | (true, false, ConnectPort::Default)
-            | (true, false, ConnectPort::SWD) => {
+            (true, ConnectPort::Default) | (true, ConnectPort::SWD) => {
                 self.state.to_swd();
                 resp.write_u8(ConnectPortResponse::SWD as u8);
             }
 
-            // JTAG
-            (true, true, ConnectPort::JTAG)
-            | (false, true, ConnectPort::Default)
-            | (false, true, ConnectPort::JTAG) => {
-                self.state.to_jtag();
-                resp.write_u8(ConnectPortResponse::JTAG as u8);
-            }
-
             // Error (tried to connect JTAG or SWD when not available)
-            (true, false, ConnectPort::JTAG) | (false, true, ConnectPort::SWD) => {
+            (true, ConnectPort::JTAG)
+            | (false, ConnectPort::Default)
+            | (false, ConnectPort::JTAG)
+            | (false, ConnectPort::SWD) => {
                 resp.write_u8(ConnectPortResponse::Failed as u8);
             }
-
-            // Checked by `new`
-            (false, false, _) => unreachable!(),
         }
     }
 
@@ -260,15 +247,9 @@ where
     ) {
         self.state.to_last_mode();
 
-        let idx = req.next_u8();
         let word = req.next_u32();
-        match (SWD::AVAILABLE, JTAG::AVAILABLE, &mut self.state) {
-            (_, true, State::Jtag(_jtag)) => {
-                // TODO: Implement one day.
-                let _ = idx;
-                resp.write_err();
-            }
-            (true, _, State::Swd(swd)) => {
+        match (SWD::AVAILABLE, &mut self.state) {
+            (true, State::Swd(swd)) => {
                 match swd
                     .write_dp(self.swd_wait_retries, swd::DPRegister::DPIDR, word)
                     .await
@@ -320,7 +301,11 @@ where
         }
     }
 
-    async fn process_swj_sequence<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
+    async fn process_swj_sequence<'b>(
+        &mut self,
+        mut req: Request<'b>,
+        resp: &mut ResponseWriter<'b>,
+    ) {
         let nbits: usize = match req.next_u8() {
             // CMSIS-DAP says 0 means 256 bits
             0 => 256,
@@ -360,33 +345,6 @@ where
         }
     }
 
-    fn process_swd_sequence(&self, _req: Request, _resp: &mut ResponseWriter) {
-        // TODO: Needs implementing
-    }
-
-    fn process_jtag_sequence(&mut self, req: Request, resp: &mut ResponseWriter) {
-        self.state.to_jtag();
-
-        match &mut self.state {
-            State::Jtag(jtag) => {
-                // Run requested JTAG sequences. Cannot fail.
-                let size = jtag.sequences(req.rest(), resp.remaining());
-                resp.skip(size as _);
-
-                resp.write_ok();
-            }
-            _ => resp.write_err(),
-        };
-    }
-
-    fn process_jtag_configure(&self, _req: Request, _resp: &mut ResponseWriter) {
-        // TODO: Implement one day (needs proper JTAG support)
-    }
-
-    fn process_jtag_idcode(&self, _req: Request, _resp: &mut ResponseWriter) {
-        // TODO: Implement one day (needs proper JTAG support)
-    }
-
     fn process_transfer_configure(&mut self, mut req: Request, resp: &mut ResponseWriter) {
         // We don't support variable idle cycles
         // TODO: Should we?
@@ -409,9 +367,6 @@ where
         let mut match_mask = 0xFFFF_FFFFu32;
 
         match &mut self.state {
-            State::Jtag(_jtag) => {
-                // TODO: Implement one day.
-            }
             State::Swd(swd) => {
                 // Skip two bytes in resp to reserve space for final status,
                 // which we update while processing.
@@ -541,9 +496,6 @@ where
         let a = swd::DPRegister::try_from((transfer_req & (3 << 2)) >> 2).unwrap();
 
         match &mut self.state {
-            State::Jtag(_jtag) => {
-                // TODO: Implement one day.
-            }
             State::Swd(swd) => {
                 // Skip three bytes in resp to reserve space for final status,
                 // which we update while processing.
@@ -633,14 +585,6 @@ where
         // We'll only ever receive an abort request when we're not already
         // processing anything else, since processing blocks checking for
         // new requests. Therefore there's nothing to do here.
-    }
-
-    fn process_execute_commands(&self, _req: Request, _resp: &mut ResponseWriter) {
-        // TODO: Implement one day.
-    }
-
-    fn process_queue_commands(&self, _req: Request, _resp: &mut ResponseWriter) {
-        // TODO: Implement one day.
     }
 }
 
