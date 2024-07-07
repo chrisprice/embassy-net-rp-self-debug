@@ -15,7 +15,6 @@ pub struct Swd {
 
 impl Swd {
     pub fn new(cpu_frequency: u32, dbgforce: Reg<Dbgforce, RW>) -> Self {
-        dbgforce.modify(|r| r.set_proc1_attach(true));
         let max_frequency = 100_000;
         let half_period_ticks = cpu_frequency / max_frequency / 2;
         Self {
@@ -25,12 +24,6 @@ impl Swd {
             half_period_ticks,
             dbgforce,
         }
-    }
-}
-
-impl Drop for Swd {
-    fn drop(&mut self) {
-        self.dbgforce.modify(|r| r.set_proc1_attach(false));
     }
 }
 

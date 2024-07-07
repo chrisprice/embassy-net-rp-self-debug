@@ -76,6 +76,9 @@ async fn main(spawner: Spawner) {
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
 
+    let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
+    let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
+
     loop {
         info!("Waiting for connection");
         if let Err(_) = socket.accept(1234).await {
@@ -84,9 +87,6 @@ async fn main(spawner: Spawner) {
         }
 
         info!("Connected");
-
-        let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
-        let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
 
         loop {
             let mut request_buffer = [0; dap::usb::DAP2_PACKET_SIZE as usize];
@@ -123,7 +123,8 @@ async fn main(spawner: Spawner) {
             };
         }
 
+        dap.suspend();
         socket.abort();
-        socket.flush().await;
+        let _ = socket.flush().await;
     }
 }

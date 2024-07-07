@@ -24,6 +24,8 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
     }
 
     async fn process_swj_sequence(&mut self, data: &[u8], mut bits: usize) {
+        self.swd.dbgforce.modify(|r| r.set_proc1_attach(true));
+
         let mut ticker = Ticker::every(Duration::from_ticks(self.swd.half_period_ticks as u64));
         ticker.next().await;
 
