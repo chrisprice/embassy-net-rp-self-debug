@@ -1,27 +1,36 @@
+use cortex_m::delay::Delay;
 use defmt::trace;
 use embassy_rp::pac::common::{Reg, RW};
 use embassy_rp::pac::syscfg::regs::Dbgforce;
-use embassy_time::{Duration, Ticker};
 
 use crate::{dap, swj::Swj};
 
 pub struct Swd {
     max_frequency: u32,
     cpu_frequency: u32,
-    pub(super) half_period_ticks: u32,
     pub(super) dbgforce: Reg<Dbgforce, RW>,
 }
 
 impl Swd {
     pub fn new(cpu_frequency: u32, dbgforce: Reg<Dbgforce, RW>) -> Self {
         let max_frequency = 100_000;
-        let half_period_ticks = cpu_frequency / max_frequency / 2;
         Self {
             max_frequency,
             cpu_frequency,
-            half_period_ticks,
             dbgforce,
         }
+    }
+
+    pub async fn delay_half_period(&mut self) {
+        // Keep async so that we can swap back to embassy-time impl 
+        // if we can work out what's going wrong. Although this is
+        // temporary until we use PIO anyway.
+        let mut delay = Delay::new(
+            unsafe { cortex_m::Peripherals::steal() }.SYST,
+            self.cpu_frequency,
+        );
+        let half_period_us = 1_000_000 / self.max_frequency / 2;
+        delay.delay_us(half_period_us);
     }
 }
 
@@ -60,8 +69,7 @@ impl dap::swd::Swd<Swj> for Swd {
         let (data, parity) = self.read_data().await;
 
         // Turnaround + trailing
-        let mut ticker = Ticker::every(Duration::from_ticks(self.half_period_ticks as u64));
-        self.read_bit(&mut ticker).await;
+        self.read_bit().await;
         self.tx8(0).await; // Drive the SWDIO line to 0 to not float
 
         if parity as u8 == (data.count_ones() as u8 & 1) {
@@ -120,9 +128,7 @@ impl dap::swd::Swd<Swj> for Swd {
         trace!("SWD set clock: freq = {}", max_frequency);
         if max_frequency < self.cpu_frequency {
             self.max_frequency = max_frequency;
-            self.half_period_ticks = self.cpu_frequency / self.max_frequency / 2;
             trace!("  freq = {}", max_frequency);
-            trace!("  half_period_ticks = {}", self.half_period_ticks);
             true
         } else {
             false
@@ -132,10 +138,8 @@ impl dap::swd::Swd<Swj> for Swd {
 
 impl Swd {
     async fn tx8(&mut self, mut data: u8) {
-        let mut ticker = Ticker::every(Duration::from_ticks(self.half_period_ticks as u64));
-
         for _ in 0..8 {
-            self.write_bit(data & 1, &mut ticker).await;
+            self.write_bit(data & 1).await;
             data >>= 1;
         }
     }
@@ -143,10 +147,8 @@ impl Swd {
     async fn rx4(&mut self) -> u8 {
         let mut data = 0;
 
-        let mut ticker = Ticker::every(Duration::from_ticks(self.half_period_ticks as u64));
-
         for i in 0..4 {
-            data |= (self.read_bit(&mut ticker).await & 1) << i;
+            data |= (self.read_bit().await & 1) << i;
         }
 
         data
@@ -155,42 +157,36 @@ impl Swd {
     async fn rx5(&mut self) -> u8 {
         let mut data = 0;
 
-        let mut ticker = Ticker::every(Duration::from_ticks(self.half_period_ticks as u64));
-
         for i in 0..5 {
-            data |= (self.read_bit(&mut ticker).await & 1) << i;
+            data |= (self.read_bit().await & 1) << i;
         }
 
         data
     }
 
     async fn send_data(&mut self, mut data: u32, parity: bool) {
-        let mut ticker = Ticker::every(Duration::from_ticks(self.half_period_ticks as u64));
-
         for _ in 0..32 {
-            self.write_bit((data & 1) as u8, &mut ticker).await;
+            self.write_bit((data & 1) as u8).await;
             data >>= 1;
         }
 
-        self.write_bit(parity as u8, &mut ticker).await;
+        self.write_bit(parity as u8).await;
     }
 
     async fn read_data(&mut self) -> (u32, bool) {
         let mut data = 0;
 
-        let mut ticker = Ticker::every(Duration::from_ticks(self.half_period_ticks as u64));
-
         for i in 0..32 {
-            data |= (self.read_bit(&mut ticker).await as u32 & 1) << i;
+            data |= (self.read_bit().await as u32 & 1) << i;
         }
 
-        let parity = self.read_bit(&mut ticker).await != 0;
+        let parity = self.read_bit().await != 0;
 
         (data, parity)
     }
 
     #[inline(always)]
-    async fn write_bit(&mut self, bit: u8, ticker: &mut Ticker) {
+    async fn write_bit(&mut self, bit: u8) {
         if bit != 0 {
             self.dbgforce.modify(|r| r.set_proc1_swdi(true));
         } else {
@@ -198,18 +194,18 @@ impl Swd {
         }
 
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        ticker.next().await;
+        self.delay_half_period().await;
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        ticker.next().await;
+        self.delay_half_period().await;
     }
 
     #[inline(always)]
-    async fn read_bit(&mut self, ticker: &mut Ticker) -> u8 {
+    async fn read_bit(&mut self) -> u8 {
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        ticker.next().await;
+        self.delay_half_period().await;
         let bit = self.dbgforce.read().proc1_swdo() as u8;
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        ticker.next().await;
+        self.delay_half_period().await;
 
         bit
     }
