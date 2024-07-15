@@ -4,7 +4,6 @@ mod response;
 mod state;
 
 pub use command::*;
-use embassy_time::Timer;
 pub use request::*;
 pub use response::*;
 
@@ -54,7 +53,7 @@ where
     /// Process a new CMSIS-DAP command from `report`.
     ///
     /// Returns number of bytes written to response buffer.
-    pub async fn process_command(
+    pub fn process_command(
         &mut self,
         report: &[u8],
         rbuf: &mut [u8],
@@ -74,12 +73,12 @@ where
             Command::DAP_HostStatus => self.process_host_status(req, resp),
             Command::DAP_Connect => self.process_connect(req, resp),
             Command::DAP_Disconnect => self.process_disconnect(req, resp),
-            Command::DAP_WriteABORT => self.process_write_abort(req, resp).await,
-            Command::DAP_Delay => self.process_delay(req, resp).await,
+            Command::DAP_WriteABORT => self.process_write_abort(req, resp),
+            Command::DAP_Delay => self.process_delay(req, resp),
             Command::DAP_ResetTarget => self.process_reset_target(req, resp),
             Command::DAP_SWJ_Pins => self.process_swj_pins(req, resp),
             Command::DAP_SWJ_Clock => self.process_swj_clock(req, resp),
-            Command::DAP_SWJ_Sequence => self.process_swj_sequence(req, resp).await,
+            Command::DAP_SWJ_Sequence => self.process_swj_sequence(req, resp),
             Command::DAP_SWD_Configure => self.process_swd_configure(req, resp),
             Command::DAP_SWD_Sequence => todo!(),
             Command::DAP_SWO_Transport => todo!(),
@@ -93,8 +92,8 @@ where
             Command::DAP_JTAG_IDCODE => todo!(),
             Command::DAP_JTAG_Sequence => todo!(),
             Command::DAP_TransferConfigure => self.process_transfer_configure(req, resp),
-            Command::DAP_Transfer => self.process_transfer(req, resp).await,
-            Command::DAP_TransferBlock => self.process_transfer_block(req, resp).await,
+            Command::DAP_Transfer => self.process_transfer(req, resp),
+            Command::DAP_TransferBlock => self.process_transfer_block(req, resp),
             Command::DAP_TransferAbort => {
                 self.process_transfer_abort();
                 // Do not send a response for transfer abort commands
@@ -240,20 +239,13 @@ where
         resp.write_ok();
     }
 
-    async fn process_write_abort<'b>(
-        &mut self,
-        mut req: Request<'b>,
-        resp: &mut ResponseWriter<'b>,
-    ) {
+    fn process_write_abort<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
         self.state.to_last_mode();
 
         let word = req.next_u32();
         match (SWD::AVAILABLE, &mut self.state) {
             (true, State::Swd(swd)) => {
-                match swd
-                    .write_dp(self.swd_wait_retries, swd::DPRegister::DPIDR, word)
-                    .await
-                {
+                match swd.write_dp(self.swd_wait_retries, swd::DPRegister::DPIDR, word) {
                     Ok(_) => resp.write_ok(),
                     Err(_) => resp.write_err(),
                 }
@@ -264,10 +256,10 @@ where
         }
     }
 
-    async fn process_delay<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
+    fn process_delay<'b>(&mut self, mut req: Request<'b>, _resp: &mut ResponseWriter<'b>) {
         let delay = req.next_u16() as u64;
-        Timer::after_micros(delay).await;
-        resp.write_ok();
+        todo!("Delay for {} us", delay);
+        // resp.write_ok();
     }
 
     fn process_reset_target(&mut self, _req: Request, resp: &mut ResponseWriter) {
@@ -301,11 +293,7 @@ where
         }
     }
 
-    async fn process_swj_sequence<'b>(
-        &mut self,
-        mut req: Request<'b>,
-        resp: &mut ResponseWriter<'b>,
-    ) {
+    fn process_swj_sequence<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
         let nbits: usize = match req.next_u8() {
             // CMSIS-DAP says 0 means 256 bits
             0 => 256,
@@ -325,7 +313,7 @@ where
         self.state.to_none();
 
         if let State::None { deps, .. } = &mut self.state {
-            deps.process_swj_sequence(seq, nbits).await;
+            deps.process_swj_sequence(seq, nbits);
         } else {
             unreachable!();
         }
@@ -359,7 +347,7 @@ where
         resp.write_ok();
     }
 
-    async fn process_transfer<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
+    fn process_transfer<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
         self.state.to_last_mode();
 
         let _idx = req.next_u8();
@@ -397,7 +385,6 @@ where
                             let rdbuff = swd::DPRegister::RDBUFF;
                             if swd
                                 .read_ap(self.swd_wait_retries, a)
-                                .await
                                 .check(resp.mut_at(2))
                                 .is_none()
                             {
@@ -405,7 +392,6 @@ where
                             }
                             match swd
                                 .read_dp(self.swd_wait_retries, rdbuff)
-                                .await
                                 .check(resp.mut_at(2))
                             {
                                 Some(v) => v,
@@ -413,11 +399,7 @@ where
                             }
                         } else {
                             // Reads from DP are not posted, so directly read the register.
-                            match swd
-                                .read_dp(self.swd_wait_retries, a)
-                                .await
-                                .check(resp.mut_at(2))
-                            {
+                            match swd.read_dp(self.swd_wait_retries, a).check(resp.mut_at(2)) {
                                 Some(v) => v,
                                 None => break,
                             }
@@ -437,7 +419,6 @@ where
 
                                 read_value = match swd
                                     .read(self.swd_wait_retries, apndp.into(), a)
-                                    .await
                                     .check(resp.mut_at(2))
                                 {
                                     Some(v) => v,
@@ -468,7 +449,6 @@ where
                         let write_value = req.next_u32();
                         if swd
                             .write(self.swd_wait_retries, apndp, a, write_value)
-                            .await
                             .check(resp.mut_at(2))
                             .is_none()
                         {
@@ -481,11 +461,7 @@ where
         }
     }
 
-    async fn process_transfer_block<'b>(
-        &mut self,
-        mut req: Request<'b>,
-        resp: &mut ResponseWriter<'b>,
-    ) {
+    fn process_transfer_block<'b>(&mut self, mut req: Request<'b>, resp: &mut ResponseWriter<'b>) {
         self.state.to_last_mode();
 
         let _idx = req.next_u8();
@@ -512,7 +488,6 @@ where
                     && apndp == swd::APnDP::AP
                     && swd
                         .read_ap(self.swd_wait_retries, a)
-                        .await
                         .check(resp.mut_at(3))
                         .is_none()
                 {
@@ -529,11 +504,7 @@ where
                             // For AP reads, the first read was posted, so on the final
                             // read we need to read RDBUFF instead of the AP register.
                             if transfer_idx < ntransfers - 1 {
-                                match swd
-                                    .read_ap(self.swd_wait_retries, a)
-                                    .await
-                                    .check(resp.mut_at(3))
-                                {
+                                match swd.read_ap(self.swd_wait_retries, a).check(resp.mut_at(3)) {
                                     Some(v) => v,
                                     None => break,
                                 }
@@ -541,7 +512,6 @@ where
                                 let rdbuff = swd::DPRegister::RDBUFF.into();
                                 match swd
                                     .read_dp(self.swd_wait_retries, rdbuff)
-                                    .await
                                     .check(resp.mut_at(3))
                                 {
                                     Some(v) => v,
@@ -550,11 +520,7 @@ where
                             }
                         } else {
                             // For DP reads, no special care required
-                            match swd
-                                .read_dp(self.swd_wait_retries, a)
-                                .await
-                                .check(resp.mut_at(3))
-                            {
+                            match swd.read_dp(self.swd_wait_retries, a).check(resp.mut_at(3)) {
                                 Some(v) => v,
                                 None => break,
                             }
@@ -565,9 +531,7 @@ where
                     } else {
                         // Handle repeated register writes
                         let write_value = req.next_u32();
-                        let result = swd
-                            .write(self.swd_wait_retries, apndp, a, write_value)
-                            .await;
+                        let result = swd.write(self.swd_wait_retries, apndp, a, write_value);
                         if result.check(resp.mut_at(3)).is_none() {
                             break;
                         }

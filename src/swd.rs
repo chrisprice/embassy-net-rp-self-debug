@@ -21,8 +21,8 @@ impl Swd {
         }
     }
 
-    pub async fn delay_half_period(&mut self) {
-        // Keep async so that we can swap back to embassy-time impl 
+    pub fn delay_half_period(&mut self) {
+        // Keep  so that we can swap back to embassy-time impl
         // if we can work out what's going wrong. Although this is
         // temporary until we use PIO anyway.
         let mut delay = Delay::new(
@@ -37,7 +37,7 @@ impl Swd {
 impl dap::swd::Swd<Swj> for Swd {
     const AVAILABLE: bool = true;
 
-    async fn read_inner(
+    fn read_inner(
         &mut self,
         apndp: dap::swd::APnDP,
         a: dap::swd::DPRegister,
@@ -46,11 +46,11 @@ impl dap::swd::Swd<Swj> for Swd {
         // Send request
         let req = dap::swd::make_request(apndp, dap::swd::RnW::R, a);
         trace!("SWD tx request");
-        self.tx8(req).await;
+        self.tx8(req);
 
         trace!("SWD rx ack");
         // Read ack, 1 clock for turnaround and 3 for ACK
-        let ack = self.rx4().await >> 1;
+        let ack = self.rx4() >> 1;
 
         match dap::swd::Ack::try_ok(ack as u8) {
             Ok(_) => trace!("    ack ok"),
@@ -59,18 +59,18 @@ impl dap::swd::Swd<Swj> for Swd {
                 // On non-OK ACK, target has released the bus but
                 // is still expecting a turnaround clock before
                 // the next request, and we need to take over the bus.
-                self.tx8(0).await;
+                self.tx8(0);
                 return Err(e);
             }
         }
 
         // Read data and parity
         trace!("SWD rx data");
-        let (data, parity) = self.read_data().await;
+        let (data, parity) = self.read_data();
 
         // Turnaround + trailing
-        self.read_bit().await;
-        self.tx8(0).await; // Drive the SWDIO line to 0 to not float
+        self.read_bit();
+        self.tx8(0); // Drive the SWDIO line to 0 to not float
 
         if parity as u8 == (data.count_ones() as u8 & 1) {
             trace!("    data: 0x{:x}", data);
@@ -80,7 +80,7 @@ impl dap::swd::Swd<Swj> for Swd {
         }
     }
 
-    async fn write_inner(
+    fn write_inner(
         &mut self,
         apndp: dap::swd::APnDP,
         a: dap::swd::DPRegister,
@@ -96,11 +96,11 @@ impl dap::swd::Swd<Swj> for Swd {
         // Send request
         let req = dap::swd::make_request(apndp, dap::swd::RnW::W, a);
         trace!("SWD tx request");
-        self.tx8(req).await;
+        self.tx8(req);
 
         // Read ack, 1 clock for turnaround and 3 for ACK and 1 for turnaround
         trace!("SWD rx ack");
-        let ack = (self.rx5().await >> 1) & 0b111;
+        let ack = (self.rx5() >> 1) & 0b111;
         match dap::swd::Ack::try_ok(ack as u8) {
             Ok(_) => trace!("    ack ok"),
             Err(e) => {
@@ -108,7 +108,7 @@ impl dap::swd::Swd<Swj> for Swd {
                 // On non-OK ACK, target has released the bus but
                 // is still expecting a turnaround clock before
                 // the next request, and we need to take over the bus.
-                self.tx8(0).await;
+                self.tx8(0);
                 return Err(e);
             }
         }
@@ -116,10 +116,10 @@ impl dap::swd::Swd<Swj> for Swd {
         // Send data and parity
         trace!("SWD tx data");
         let parity = data.count_ones() & 1 == 1;
-        self.send_data(data, parity).await;
+        self.send_data(data, parity);
 
         // Send trailing idle
-        self.tx8(0).await;
+        self.tx8(0);
 
         Ok(())
     }
@@ -137,56 +137,56 @@ impl dap::swd::Swd<Swj> for Swd {
 }
 
 impl Swd {
-    async fn tx8(&mut self, mut data: u8) {
+    fn tx8(&mut self, mut data: u8) {
         for _ in 0..8 {
-            self.write_bit(data & 1).await;
+            self.write_bit(data & 1);
             data >>= 1;
         }
     }
 
-    async fn rx4(&mut self) -> u8 {
+    fn rx4(&mut self) -> u8 {
         let mut data = 0;
 
         for i in 0..4 {
-            data |= (self.read_bit().await & 1) << i;
+            data |= (self.read_bit() & 1) << i;
         }
 
         data
     }
 
-    async fn rx5(&mut self) -> u8 {
+    fn rx5(&mut self) -> u8 {
         let mut data = 0;
 
         for i in 0..5 {
-            data |= (self.read_bit().await & 1) << i;
+            data |= (self.read_bit() & 1) << i;
         }
 
         data
     }
 
-    async fn send_data(&mut self, mut data: u32, parity: bool) {
+    fn send_data(&mut self, mut data: u32, parity: bool) {
         for _ in 0..32 {
-            self.write_bit((data & 1) as u8).await;
+            self.write_bit((data & 1) as u8);
             data >>= 1;
         }
 
-        self.write_bit(parity as u8).await;
+        self.write_bit(parity as u8);
     }
 
-    async fn read_data(&mut self) -> (u32, bool) {
+    fn read_data(&mut self) -> (u32, bool) {
         let mut data = 0;
 
         for i in 0..32 {
-            data |= (self.read_bit().await as u32 & 1) << i;
+            data |= (self.read_bit() as u32 & 1) << i;
         }
 
-        let parity = self.read_bit().await != 0;
+        let parity = self.read_bit() != 0;
 
         (data, parity)
     }
 
     #[inline(always)]
-    async fn write_bit(&mut self, bit: u8) {
+    fn write_bit(&mut self, bit: u8) {
         if bit != 0 {
             self.dbgforce.modify(|r| r.set_proc1_swdi(true));
         } else {
@@ -194,18 +194,18 @@ impl Swd {
         }
 
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.delay_half_period().await;
+        self.delay_half_period();
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        self.delay_half_period().await;
+        self.delay_half_period();
     }
 
     #[inline(always)]
-    async fn read_bit(&mut self) -> u8 {
+    fn read_bit(&mut self) -> u8 {
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.delay_half_period().await;
+        self.delay_half_period();
         let bit = self.dbgforce.read().proc1_swdo() as u8;
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        self.delay_half_period().await;
+        self.delay_half_period();
 
         bit
     }

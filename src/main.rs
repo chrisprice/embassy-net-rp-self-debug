@@ -119,9 +119,7 @@ async fn core0_task(
             info!("Received {} bytes", n);
 
             let mut response_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
-            let n = dap
-                .process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
-                .await;
+            let n = dap.process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2);
 
             info!("Responding with {} bytes", n);
 
