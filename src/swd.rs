@@ -1,4 +1,3 @@
-use cortex_m::delay::Delay;
 use defmt::trace;
 use embassy_rp::pac::common::{Reg, RW};
 use embassy_rp::pac::syscfg::regs::Dbgforce;
@@ -13,24 +12,13 @@ pub struct Swd {
 
 impl Swd {
     pub fn new(cpu_frequency: u32, dbgforce: Reg<Dbgforce, RW>) -> Self {
-        let max_frequency = 100_000;
+        // TODO: this number is very not accurate
+        let max_frequency = cpu_frequency;
         Self {
             max_frequency,
             cpu_frequency,
             dbgforce,
         }
-    }
-
-    pub fn delay_half_period(&mut self) {
-        // Keep  so that we can swap back to embassy-time impl
-        // if we can work out what's going wrong. Although this is
-        // temporary until we use PIO anyway.
-        let mut delay = Delay::new(
-            unsafe { cortex_m::Peripherals::steal() }.SYST,
-            self.cpu_frequency,
-        );
-        let half_period_us = 1_000_000 / self.max_frequency / 2;
-        delay.delay_us(half_period_us);
     }
 }
 
@@ -194,18 +182,14 @@ impl Swd {
         }
 
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.delay_half_period();
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        self.delay_half_period();
     }
 
     #[inline(always)]
     fn read_bit(&mut self) -> u8 {
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.delay_half_period();
         let bit = self.dbgforce.read().proc1_swdo() as u8;
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        self.delay_half_period();
 
         bit
     }

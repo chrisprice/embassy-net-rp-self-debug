@@ -25,8 +25,6 @@ impl dap::swj::Dependencies<Swd> for Swj {
     fn process_swj_sequence(&mut self, data: &[u8], mut bits: usize) {
         self.swd.dbgforce.modify(|r| r.set_proc1_attach(true));
 
-        self.swd.delay_half_period();
-
         trace!("Running SWJ sequence: {:08b}, len = {}", data, bits);
         for byte in data {
             let mut byte = *byte;
@@ -40,9 +38,7 @@ impl dap::swj::Dependencies<Swd> for Swj {
                     self.swd.dbgforce.modify(|r| r.set_proc1_swdi(false));
                 }
                 self.swd.dbgforce.modify(|r| r.set_proc1_swclk(false));
-                self.swd.delay_half_period();
                 self.swd.dbgforce.modify(|r| r.set_proc1_swclk(true));
-                self.swd.delay_half_period();
             }
             bits -= frame_bits;
         }
