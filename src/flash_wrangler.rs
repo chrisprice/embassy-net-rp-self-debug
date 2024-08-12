@@ -24,7 +24,8 @@ pub fn handle_pending_flash() {
     let ipc = unsafe { &*IPC };
 
     match ipc.what.load(Ordering::Acquire) {
-        0 => {}
+        0 => return,
+
         // IpcWhat::...
         1 => {
             info!(
