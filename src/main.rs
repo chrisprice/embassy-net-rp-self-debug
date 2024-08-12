@@ -74,6 +74,7 @@ async fn core0_task(
     spi: PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
     pin_23: PIN_23,
 ) {
+    info!("init'ing network...");
     let stack = network::init_network(
         spawner,
         network::Mode::Station,
@@ -85,14 +86,18 @@ async fn core0_task(
     )
     .await;
 
+    info!("network ready");
+
     let mut rx_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
     let mut tx_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
 
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
+    info!("socket setup");
 
     let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
+    info!("dap setup");
 
     loop {
         info!("Waiting for connection");
