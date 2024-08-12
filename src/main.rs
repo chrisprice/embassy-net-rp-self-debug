@@ -8,6 +8,7 @@ mod network;
 mod swd;
 mod swj;
 mod swo;
+mod flash_wrangler;
 
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
@@ -125,6 +126,10 @@ async fn core0_task(
             let n = dap
                 .process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
                 .await;
+
+            // possibly move this to a polling task
+            // or just use proper IPC / SIO.fifo
+            flash_wrangler::handle_pending_flash();
 
             info!("Responding with {} bytes", n);
 
