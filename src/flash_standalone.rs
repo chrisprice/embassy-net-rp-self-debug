@@ -57,7 +57,7 @@ fn ipc(what: IpcWhat, regs: &[usize; 3]) {
     ipc.what.store(what as u8, Ordering::Release);
 }
 
-fn ipc_wait() -> usize {
+fn ipc_wait() -> ! {
     let ipc = unsafe { &*IPC };
 
     while ipc.what.load(Ordering::Relaxed) > 0 {
@@ -66,12 +66,21 @@ fn ipc_wait() -> usize {
         }
     }
 
-    0
+    halt()
+}
+
+fn halt() -> ! {
+    unsafe {
+        core::arch::asm!(
+            "1: wfi\nb 1b",
+            options(noreturn, nomem, nostack),
+        )
+    }
 }
 
 #[link_section = ".text"]
 #[no_mangle]
-fn init(address: usize, clock_or_zero: usize, op: Operation) -> usize {
+fn init(address: usize, clock_or_zero: usize, op: Operation) -> ! {
     ipc(
         IpcWhat::Initialised,
         &[address, clock_or_zero, op as _]
@@ -82,7 +91,7 @@ fn init(address: usize, clock_or_zero: usize, op: Operation) -> usize {
 
 #[link_section = ".text"]
 #[no_mangle]
-fn uninit(op: Operation) -> usize {
+fn uninit(op: Operation) -> ! {
     ipc(
         IpcWhat::Deinitalised,
         &[op as _, 0, 0]
@@ -93,7 +102,7 @@ fn uninit(op: Operation) -> usize {
 
 #[link_section = ".text"]
 #[no_mangle]
-fn program_page(address: usize, byte_len: usize, buffer: *const u8) -> usize {
+fn program_page(address: usize, byte_len: usize, buffer: *const u8) -> ! {
     ipc(
         IpcWhat::Programming,
         &[address, byte_len, buffer as _]
@@ -104,7 +113,7 @@ fn program_page(address: usize, byte_len: usize, buffer: *const u8) -> usize {
 
 #[link_section = ".text"]
 #[no_mangle]
-fn erase_sector(address: usize) -> usize {
+fn erase_sector(address: usize) -> ! {
     ipc(
         IpcWhat::Erasing,
         &[address, 0, 0]
