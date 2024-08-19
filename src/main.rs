@@ -111,7 +111,7 @@ async fn core0_task(
         loop {
             let mut request_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
 
-            info!("Waiting for request");
+            trace!("Waiting for request");
 
             let n = match socket.read(&mut request_buffer).await {
                 Ok(0) => {
@@ -125,7 +125,7 @@ async fn core0_task(
                 }
             };
 
-            info!("Received {} bytes", n);
+            trace!("Received {} bytes", n);
 
             let mut response_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
             let n = dap
@@ -136,7 +136,7 @@ async fn core0_task(
             // or just use proper IPC / SIO.fifo
             flash_wrangler::handle_pending_flash();
 
-            info!("Responding with {} bytes", n);
+            trace!("Responding with {} bytes", n);
 
             match socket.write_all(&response_buffer[..n]).await {
                 Ok(()) => {}
