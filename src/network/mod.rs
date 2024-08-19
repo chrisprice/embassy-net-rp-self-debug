@@ -48,7 +48,13 @@ pub async fn init_network(
         .await;
 
     let config = match ip_address {
-        Address::Dhcp => Config::dhcpv4(DhcpConfig::default()),
+        Address::Dhcp => {
+            let mut cfg = DhcpConfig::default();
+
+            cfg.hostname = Some(["pico0"].into_iter().collect());
+
+            Config::dhcpv4(cfg)
+        },
         Address::StaticV4(ip_address) => Config::ipv4_static(StaticConfigV4 {
             address: ip_address,
             gateway: None,

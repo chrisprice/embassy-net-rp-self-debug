@@ -27,6 +27,7 @@ embassy-net = { version = "0.4.0", features = [
     "dns",
     "dhcpv4",
     "medium-ethernet",
+    "dhcpv4-hostname",
 ] }
 embassy-rp = { version = "0.1.0", features = [
     "defmt",
