@@ -46,9 +46,7 @@ struct Ipc {
     regs: [usize; 3],
 }
 
-const IPC: *mut Ipc = (
-    0x20000000 + 256 * 1024 - 4 * core::mem::size_of::<usize>()
-) as _; // last chunk of memory, space for 4 usize:s
+const IPC: *mut Ipc = 0x20040000 as _;
 
 fn ipc(what: IpcWhat, regs: &[usize; 3]) {
     let ipc = unsafe { &mut *IPC };

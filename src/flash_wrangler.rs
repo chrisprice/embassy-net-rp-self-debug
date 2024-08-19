@@ -16,9 +16,8 @@ enum IpcWhat {
 }
 
 // TODO: no copy+paste
-const IPC: *mut Ipc = (
-    0x20000000 + 256 * 1024 - 4 * core::mem::size_of::<usize>()
-) as _; // last chunk of memory, space for 4 usize:s
+// see https://github.com/embassy-rs/embassy/blob/2537fc6f4fcbdaa0fcea45a37382d61f59cc5767/examples/boot/bootloader/rp/memory.x#L18-L21
+const IPC: *mut Ipc = 0x20040000 as _;
 
 pub fn handle_pending_flash() {
     let ipc = unsafe { &*IPC };
