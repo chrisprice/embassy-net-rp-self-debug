@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicU8, Ordering};
-use defmt::{info, warn};
+use defmt::{info, warn, error};
 
 #[repr(C)]
 struct Ipc {
@@ -41,16 +41,16 @@ pub fn handle_pending_flash() {
             );
         }
         3 => {
-            info!(
-                "found program_page({:x}, {:x}, {:x}), pretending it was ok",
+            error!(
+                "found program_page({:x}, {:x}, {:x}), pretending it was ok - TODO, implement",
                 ipc.regs[0],
                 ipc.regs[1],
                 ipc.regs[2],
             );
         }
         4 => {
-            info!(
-                "found erase_sector({:x}), pretending it was ok",
+            error!(
+                "found erase_sector({:x}), pretending it was ok - TODO, implement",
                 ipc.regs[0],
             );
         }
