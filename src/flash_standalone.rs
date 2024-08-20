@@ -70,7 +70,9 @@ fn ipc_wait() -> ! {
 fn halt() -> ! {
     unsafe {
         core::arch::asm!(
-            "1: wfi\nb 1b",
+            //"1: wfi\nb 1b",
+            //"1: bkpt\nb 1b",
+            "1: trap\nb 1b",
             options(noreturn, nomem, nostack),
         )
     }
