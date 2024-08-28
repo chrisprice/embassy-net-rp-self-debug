@@ -59,9 +59,6 @@ fn ipc_wait() -> ! {
     let ipc = unsafe { &*IPC };
 
     while ipc.what.load(Ordering::Relaxed) > 0 {
-        unsafe {
-            core::arch::asm!("nop"); // no deps
-        }
     }
 
     halt()
