@@ -59,5 +59,5 @@ pub fn handle_pending_flash() {
         }
     }
 
-    ipc.what.store(0, Ordering::Relaxed);
+    ipc.what.store(0, Ordering::SeqCst);
 }

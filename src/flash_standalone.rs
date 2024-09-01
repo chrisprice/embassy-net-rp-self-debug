@@ -52,7 +52,7 @@ fn ipc(what: IpcWhat, regs: &[usize; 3]) {
     let ipc = unsafe { &mut *IPC };
 
     ipc.regs.copy_from_slice(regs);
-    ipc.what.store(what as u8, Ordering::Release);
+    ipc.what.store(what as u8, Ordering::SeqCst);
 }
 
 fn ipc_wait() -> ! {
