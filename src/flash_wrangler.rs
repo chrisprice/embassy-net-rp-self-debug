@@ -28,7 +28,7 @@ pub fn handle_pending_flash() {
         // IpcWhat::...
         1 => {
             info!(
-                "found init({:x}, {:x}, {:x}), pretending it was ok",
+                "found init({:#x}, {:#x}, {:#x}), pretending it was ok",
                 ipc.regs[0],
                 ipc.regs[1],
                 ipc.regs[2],
@@ -36,13 +36,13 @@ pub fn handle_pending_flash() {
         }
         2 => {
             info!(
-                "found deinit({:x}), pretending it was ok",
+                "found deinit({:#x}), pretending it was ok",
                 ipc.regs[0],
             );
         }
         3 => {
             error!(
-                "found program_page({:x}, {:x}, {:x}), pretending it was ok - TODO, implement",
+                "found program_page({:#x}, {:#x}, {:#x}), pretending it was ok - TODO, implement",
                 ipc.regs[0],
                 ipc.regs[1],
                 ipc.regs[2],
@@ -50,7 +50,7 @@ pub fn handle_pending_flash() {
         }
         4 => {
             error!(
-                "found erase_sector({:x}), pretending it was ok - TODO, implement",
+                "found erase_sector({:#x}), pretending it was ok - TODO, implement",
                 ipc.regs[0],
             );
         }
