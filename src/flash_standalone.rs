@@ -48,6 +48,7 @@ struct Ipc {
 
 const IPC: *mut Ipc = 0x20040000 as _;
 
+#[link_section = ".text"]
 fn ipc(what: IpcWhat, regs: &[usize; 3]) {
     let ipc = unsafe { &mut *IPC };
 
@@ -55,6 +56,7 @@ fn ipc(what: IpcWhat, regs: &[usize; 3]) {
     ipc.what.store(what as u8, Ordering::SeqCst);
 }
 
+#[link_section = ".text"]
 fn ipc_wait() -> ! {
     let ipc = unsafe { &*IPC };
 
@@ -64,6 +66,7 @@ fn ipc_wait() -> ! {
     halt()
 }
 
+#[link_section = ".text"]
 fn halt() -> ! {
     unsafe {
         core::arch::asm!(
