@@ -74,7 +74,7 @@ where
 
         let resp = &mut ResponseWriter::new(req.command, rbuf);
 
-        // defmt::trace!("Dap command: {}", req.command);
+        defmt::trace!("Dap command: {}", req.command);
 
         match req.command {
             Command::DAP_Info => self.process_info(req, resp, version),
@@ -554,6 +554,7 @@ where
         match &mut self.state {
             State::Jtag(_jtag) => {
                 // TODO: Implement one day.
+                todo!()
             }
             State::Swd(swd) => {
                 // Skip two bytes in resp to reserve space for final status,
@@ -572,6 +573,8 @@ where
                     let vmatch = (transfer_req & (1 << 4)) != 0;
                     let mmask = (transfer_req & (1 << 5)) != 0;
                     let _ts = (transfer_req & (1 << 7)) != 0;
+
+                    defmt::trace!("swd, got {} command", rnw);
 
                     if rnw == swd::RnW::R {
                         // Issue register read
@@ -665,7 +668,8 @@ where
                     }
                 }
             }
-            _ => return,
+            State::Invalid => panic!("invalid state `Invalid`"),
+            State::None { .. } => panic!("invalid state `None`"),
         }
     }
 
