@@ -63,18 +63,18 @@ fn ipc_wait() -> ! {
     while ipc.what.load(Ordering::Relaxed) > 0 {
     }
 
-    halt()
+    let exit_code = 0;
+    halt(exit_code)
 }
 
 #[link_section = ".text"]
-fn halt() -> ! {
+fn halt(exit_code: usize) -> ! {
     unsafe {
         core::arch::asm!(
-            //"1: wfi\nb 1b",
-            //"1: bkpt\nb 1b",
-            "1: trap\nb 1b",
-            options(noreturn, nomem, nostack),
-        )
+            "1: wfi\nb 1b",
+            in("r0") exit_code,
+            options(noreturn, nomem, nostack, preserves_flags)
+        );
     }
 }
 
