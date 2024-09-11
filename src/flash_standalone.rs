@@ -46,7 +46,7 @@ struct Ipc {
     regs: [usize; 3],
 }
 
-const IPC: *mut Ipc = 0x20040000 as _;
+const IPC: *mut Ipc = 0x20032000 as _;
 
 #[link_section = ".text"]
 fn ipc(what: IpcWhat, regs: &[usize; 3]) {

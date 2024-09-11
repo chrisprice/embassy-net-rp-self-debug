@@ -17,7 +17,8 @@ enum IpcWhat {
 
 // TODO: no copy+paste
 // see https://github.com/embassy-rs/embassy/blob/2537fc6f4fcbdaa0fcea45a37382d61f59cc5767/examples/boot/bootloader/rp/memory.x#L18-L21
-const IPC: *mut Ipc = 0x20040000 as _;
+pub const IPC_ADDR: usize = 0x20032000;
+const IPC: *mut Ipc = IPC_ADDR as _;
 
 pub fn handle_pending_flash() {
     let ipc = unsafe { &*IPC };

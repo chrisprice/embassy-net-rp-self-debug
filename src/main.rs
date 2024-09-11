@@ -99,6 +99,8 @@ async fn core0_task(
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
     info!("dap setup");
 
+    info!("monitoring address {:#x} for The Algo", flash_wrangler::IPC_ADDR);
+
     loop {
         info!("Waiting for connection");
         if socket.accept(1234).await.is_err() {
