@@ -7,9 +7,12 @@ LD = ${SYSROOT_BIN}/gcc-ld/ld.lld
 OPT = -C opt-level=3
 RUSTC_FLAGS = --crate-type=lib -C codegen-units=1 ${OPT}
 
-.PHONY: all
+.PHONY: all clean
 
 all: algo.yaml flash.s
+
+clean:
+	rm -f algo.yaml flash.o flash.base64 flash.s flash.linked flash.text
 
 algo.yaml: flash.o flash.base64
 	sh gen_yaml.sh flash.base64 flash.o $@
