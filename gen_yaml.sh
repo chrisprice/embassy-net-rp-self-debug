@@ -14,7 +14,6 @@ cat >"$out" <<!
 - name: nop_ipc
   description: do nothing, wait for selfdebug to pick things up
   default: true
-  stack_overflow_check: false  # TODO: enable this and figure out why it's sometimes triggering
   instructions: $(cat "$algo")
 !
 
