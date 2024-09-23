@@ -1,4 +1,5 @@
 use core::sync::atomic::{AtomicU8, Ordering};
+use core::mem::MaybeUninit;
 use defmt::{info, warn, error};
 
 #[repr(C)]
@@ -19,6 +20,11 @@ enum IpcWhat {
 // see https://github.com/embassy-rs/embassy/blob/2537fc6f4fcbdaa0fcea45a37382d61f59cc5767/examples/boot/bootloader/rp/memory.x#L18-L21
 pub const IPC_ADDR: usize = 0x20032000;
 const IPC: *mut Ipc = IPC_ADDR as _;
+
+// reserve the memory range for probe-rs to use:
+#[used]
+#[link_section = ".probe_rs_scratch"] // 0x2003a000..0x20042000
+pub static mut SCRATCH: MaybeUninit<[u8; 10 * 1024]> = MaybeUninit::uninit();
 
 pub fn handle_pending_flash() {
     let ipc = unsafe { &*IPC };
