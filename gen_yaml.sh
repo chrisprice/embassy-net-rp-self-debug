@@ -30,7 +30,7 @@ cat >>"$out" <<!
   data_section_offset: 0x0
   flash_properties:
     address_range:
-      start: 0x10000000 # code loaded here (since there's no load_address)
+      start: 0x10000000 # area of flash we're capable of flashing
       end: 0x18000000
     page_size: 0x1000
     erased_byte_value: 0xff
