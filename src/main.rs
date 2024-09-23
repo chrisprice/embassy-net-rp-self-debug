@@ -42,6 +42,7 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 #[cortex_m_rt::entry]
 fn main() -> ! {
     info!("Start");
+    flash_wrangler::init();
     let p = embassy_rp::init(Default::default());
 
     spawn_core1(
@@ -99,7 +100,7 @@ async fn core0_task(
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
     info!("dap setup");
 
-    info!("monitoring address {:#x} for The Algo", flash_wrangler::IPC_ADDR);
+    info!("monitoring address {:x} for The Algo", unsafe { core::ptr::addr_of!(flash_wrangler::IPC) });
 
     loop {
         info!("Waiting for connection");
