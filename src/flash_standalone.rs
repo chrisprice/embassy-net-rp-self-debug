@@ -46,7 +46,10 @@ struct Ipc {
     regs: [usize; 3],
 }
 
-const IPC: *mut Ipc = 0x20032000 as _;
+// from RP2040.yaml, we should live in the given memory range along with the block of memory to flash,
+// but not our stack, which lives in core1 stack's zone
+// FIXME: no hardcoding
+const IPC: *mut Ipc = 0x20010800 as _;
 
 #[link_section = ".text"]
 fn ipc(what: IpcWhat, regs: &[usize; 3]) {
