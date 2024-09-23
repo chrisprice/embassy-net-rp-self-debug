@@ -16,12 +16,9 @@ SECTIONS {
 
 SECTIONS {
     /* ensure probe_rs_scratch section is at a fixed address */
-    .probe_rs_scratch 0x2003a000 (NOLOAD) : {
+    .probe_rs_scratch 0x2000e000 (NOLOAD) : {
         KEEP(*(.probe_rs_scratch));
         . = ALIGN(4);
         __escratch = .;
     } > RAM
-
-    /* hack to fix heap location (tightly coupled to cortex-m-rt-0.7.4/link.x.in) */
-    PROVIDE(__sheap = __escratch);
-} INSERT AFTER .uninit;
+} INSERT BEFORE .uninit;
