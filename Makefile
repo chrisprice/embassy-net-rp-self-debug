@@ -23,6 +23,9 @@ flash-objdump: flash.o
 flash.o: src/flash_standalone.rs
 	rustc --target=thumbv6m-none-eabi ${RUSTC_FLAGS} --emit=obj $< -o $@
 
+check-flash: flash.o
+	sh check-flash.sh flash.o
+
 flash.s: src/flash_standalone.rs
 	rustc --target=thumbv6m-none-eabi ${RUSTC_FLAGS} --emit=asm $< -o $@
 	rustfilt <"$@" | sponge "$@"
@@ -41,7 +44,7 @@ flash.linked: flash.o
 	@# not needed - branches are relative anyway
 	${LD} -r -Ttext 0x20000000 -o $@ $<
 
-flash.text: flash.o #linked
+flash.text: flash.o check-flash #linked
 	@# needs all code in .text:
 	${OBJCOPY} -j .text -O binary $< $@
 
