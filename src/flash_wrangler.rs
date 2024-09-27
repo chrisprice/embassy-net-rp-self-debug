@@ -1,5 +1,4 @@
 use core::sync::atomic::{AtomicU8, Ordering};
-use core::mem::MaybeUninit;
 use defmt::{info, warn, error};
 
 #[repr(C)]
@@ -25,11 +24,7 @@ enum IpcWhat {
     Erasing,
 }
 
-// reserve the memory range for probe-rs to use:
-#[used]
-#[link_section = ".probe_rs_scratch"] // 0x2003a000..0x20042000
-pub static mut SCRATCH: MaybeUninit<[u8; 10 * 1024]> = MaybeUninit::uninit();
-
+// reserve the memory address for IPC:
 #[used]
 #[link_section = ".probe_rs_scratch"]
 pub static mut IPC: Ipc = Ipc::new();
