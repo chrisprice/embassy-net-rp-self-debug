@@ -46,6 +46,7 @@ pub fn init() {
 }
 
 pub fn handle_pending_flash() {
+    #[allow(static_mut_refs)]
     let ipc = unsafe { &IPC };
 
     match ipc.what.load(Ordering::Acquire) {
