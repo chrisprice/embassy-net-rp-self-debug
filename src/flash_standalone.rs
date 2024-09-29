@@ -61,10 +61,14 @@ fn ipc(what: IpcWhat, regs: &[usize; 3]) {
 
 #[link_section = ".text"]
 fn ipc_wait() -> ! {
+    //cortex_m::interrupt::disable(); ?
+
     let ipc = unsafe { &*IPC };
 
     while ipc.what.load(Ordering::Relaxed) > 0 {
     }
+
+    //cortex_m::interrupt::enable(); ?
 
     let exit_code = 0;
     halt(exit_code)
