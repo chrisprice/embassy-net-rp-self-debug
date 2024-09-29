@@ -3,6 +3,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone)]
 pub enum DapVersion {
+    #[allow(dead_code)]
     V1,
     V2,
 }
@@ -115,6 +116,7 @@ pub enum ConnectPortResponse {
     JTAG = 2,
 }
 
+#[allow(dead_code)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DapMode {
     SWD,
