@@ -1,4 +1,7 @@
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::{
+    sync::atomic::{AtomicU8, Ordering},
+    mem,
+};
 use defmt::{info, error};
 use embassy_rp::pac as pac;
 
@@ -15,14 +18,27 @@ impl Ipc {
             regs: [0; 3],
         }
     }
+
+    fn read_what(&self) -> Result<Option<IpcWhat>, u8> {
+        let w: u8 = self.what.load(Ordering::Acquire);
+        match w {
+            0 => Ok(None),
+            1 ..= 4 => Ok(Some(unsafe {
+                // SAFETY: repr(u8) on IpcWhat
+                mem::transmute(w)
+            })),
+            w => Err(w),
+        }
+    }
 }
 
-#[repr(C)]
+#[allow(dead_code)]
+#[repr(u8)]
 enum IpcWhat {
-    Initialised = 1, // anything but zero
-    Deinitalised,
-    Programming,
-    Erasing,
+    Initialise = 1, // anything but zero
+    Deinitalise,
+    Program,
+    Erase,
 }
 
 // reserve the memory address for IPC:
@@ -52,11 +68,10 @@ pub fn handle_pending_flash() {
     #[allow(static_mut_refs)]
     let ipc = unsafe { &IPC };
 
-    match ipc.what.load(Ordering::Acquire) {
-        0 => return,
+    match ipc.read_what() {
+        Ok(None) => return,
 
-        // IpcWhat::...
-        1 => {
+        Ok(Some(IpcWhat::Initialise)) => {
             info!(
                 "found init({:#x}, {:#x}, {:#x}), initialising...",
                 ipc.regs[0],
@@ -74,7 +89,7 @@ pub fn handle_pending_flash() {
 
             info!("init done");
         }
-        2 => {
+        Ok(Some(IpcWhat::Deinitalise)) => {
             info!(
                 "found deinit({:#x}), flushing & resoring xip...",
                 ipc.regs[0],
@@ -89,7 +104,7 @@ pub fn handle_pending_flash() {
 
             info!("deinit done");
         }
-        3 => {
+        Ok(Some(IpcWhat::Program)) => {
             info!(
                 "found program_page({:#x}, {:#x}, {:#x}), programming...",
                 ipc.regs[0],
@@ -123,7 +138,7 @@ pub fn handle_pending_flash() {
 
             info!("program_page done");
         }
-        4 => {
+        Ok(Some(IpcWhat::Erase)) => {
             info!(
                 "found erase_sector({:#x}), erasing...",
                 ipc.regs[0],
@@ -144,7 +159,7 @@ pub fn handle_pending_flash() {
 
             info!("erase done");
         }
-        v => {
+        Err(v) => {
             error!("unknown ipc value {}", v);
         }
     }
