@@ -54,4 +54,3 @@ embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 num_enum = { version = "0.7.2", default-features = false }
 bitflags = "2.6.0"
 replace_with = { version = "0.1.7", default-features = false }
-
