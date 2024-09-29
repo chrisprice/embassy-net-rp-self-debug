@@ -49,19 +49,6 @@ pub static mut IPC: Ipc = Ipc::new();
 // TODO: no copy+paste of address
 // see https://github.com/embassy-rs/embassy/blob/2537fc6f4fcbdaa0fcea45a37382d61f59cc5767/examples/boot/bootloader/rp/memory.x#L18-L21
 
-pub fn init() {
-    // `IPC` should be in .bss but if it goes in there, we can't fix its address, so it's a choice of:
-    // - fixed address, we initialise
-    // - unknown address, runtime initialises
-    //
-    // former has been chosen
-    unsafe {
-        // don't drop, since it's not initaliised
-        use core::ptr::{write, addr_of_mut};
-        write(addr_of_mut!(IPC), Ipc::new());
-    }
-}
-
 pub fn handle_pending_flash() {
     use embassy_rp::rom_data;
 
