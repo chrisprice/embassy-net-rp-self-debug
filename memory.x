@@ -11,11 +11,10 @@ MEMORY {
 }
 
 SECTIONS {
-    /* ensure probe_rs_scratch section is at a fixed address */
-    .probe_rs_scratch 0x2000e000 (NOLOAD) : {
-        KEEP(*(.probe_rs_scratch));
+    .ipc_thunk 0x20000000 : {
+        KEEP(*(.ipc_thunk));
     } > RAM
-} INSERT AFTER .bss;
+} INSERT BEFORE .data;
 
 __bootloader_state_start = ORIGIN(BOOTLOADER_STATE) - ORIGIN(BOOT2);
 __bootloader_state_end = ORIGIN(BOOTLOADER_STATE) + LENGTH(BOOTLOADER_STATE) - ORIGIN(BOOT2);
