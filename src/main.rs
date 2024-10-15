@@ -8,7 +8,7 @@ mod network;
 mod swd;
 mod swj;
 mod swo;
-mod flash_wrangler;
+mod flash;
 
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
@@ -42,6 +42,8 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 #[cortex_m_rt::entry]
 fn main() -> ! {
     info!("Start");
+    flash::init();
+
     let p = embassy_rp::init(Default::default());
 
     spawn_core1(
@@ -99,8 +101,6 @@ async fn core0_task(
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
     info!("dap setup");
 
-    info!("monitoring address {:x} for The Algo", unsafe { core::ptr::addr_of!(flash_wrangler::IPC) });
-
     loop {
         info!("Waiting for connection");
         if socket.accept(1234).await.is_err() {
@@ -136,7 +136,7 @@ async fn core0_task(
 
             // possibly move this to a polling task
             // or just use proper IPC / SIO.fifo
-            flash_wrangler::handle_pending_flash();
+            flash::monitor::handle_pending_flash();
 
             trace!("Responding with {} bytes", n);
 

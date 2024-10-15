@@ -1,52 +1,13 @@
 use core::{
-    mem, sync::atomic::{AtomicU8, Ordering}
+    sync::atomic::Ordering
 };
 use defmt::{info, error};
 use embassy_rp::pac as pac;
 
-#[repr(C)]
-pub struct Ipc {
-    what: AtomicU8, // IpcWhat,
-    regs: [u32; 3],
-}
-
-impl Ipc {
-    const fn new() -> Self {
-        Self  {
-            what: AtomicU8::new(0),
-            regs: [0; 3],
-        }
-    }
-
-    fn read_what(&self) -> Result<Option<IpcWhat>, u8> {
-        let w: u8 = self.what.load(Ordering::Acquire);
-        match w {
-            0 => Ok(None),
-            1 ..= 4 => Ok(Some(unsafe {
-                // SAFETY: repr(u8) on IpcWhat
-                mem::transmute(w)
-            })),
-            w => Err(w),
-        }
-    }
-}
-
-#[allow(dead_code)]
-#[repr(u8)]
-enum IpcWhat {
-    Initialise = 1, // anything but zero
-    Deinitalise,
-    Program,
-    Erase,
-}
-
-// reserve the memory address for IPC:
-#[used]
-#[link_section = ".probe_rs_scratch"]
-pub static mut IPC: Ipc = Ipc::new();
-
-// TODO: no copy+paste of address
-// see https://github.com/embassy-rs/embassy/blob/2537fc6f4fcbdaa0fcea45a37382d61f59cc5767/examples/boot/bootloader/rp/memory.x#L18-L21
+use crate::flash::{
+    ipc::{IPC, IpcWhat},
+    thunk::Operation,
+};
 
 pub fn handle_pending_flash() {
     use embassy_rp::rom_data;
@@ -57,7 +18,7 @@ pub fn handle_pending_flash() {
     match ipc.read_what() {
         Ok(None) => return,
 
-        Ok(Some(IpcWhat::Initialise)) => {
+        Ok(Some(IpcWhat::Init)) => {
             info!(
                 "found init({:#x}, {:#x}, {:#x}), initialising...",
                 ipc.regs[0],
@@ -75,7 +36,7 @@ pub fn handle_pending_flash() {
 
             info!("init done");
         }
-        Ok(Some(IpcWhat::Deinitalise)) => {
+        Ok(Some(IpcWhat::Deinit)) => {
             info!(
                 "found deinit({:#x}), flushing & resoring xip...",
                 ipc.regs[0],
@@ -90,14 +51,7 @@ pub fn handle_pending_flash() {
 
             info!("deinit done");
 
-            #[allow(dead_code)]
-            enum Operation { // probe-rs, flasher.rs
-                Erase = 1,
-                Program = 2,
-                Verify = 3,
-            }
-
-            if ipc.regs[0] == Operation::Program as u32 {
+            if ipc.regs[0] == Operation::Program as usize {
                 // all done, laters
                 info!("deinit(Operation::Program) detected, finalising...");
                 flash_done();
@@ -115,7 +69,7 @@ pub fn handle_pending_flash() {
             // 0eaed1a2461ca, src/flashing/flasher.rs, L849-L851
             let [addr, count, data] = ipc.regs;
 
-            let addr = flash_map_address(addr);
+            let addr = flash_map_address(addr as u32);
             let count = count as usize;
             let data = data as *const u8;
 
@@ -143,7 +97,7 @@ pub fn handle_pending_flash() {
                 ipc.regs[0],
             );
 
-            let addr = flash_map_address(ipc.regs[0]);
+            let addr = flash_map_address(ipc.regs[0] as u32);
             let (count, block_size, block_cmd) = (0x1000, 0x10000, 0xd8);
 
             flash_safe(|| {
