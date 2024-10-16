@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["defmt", "usb-hs"]
+default = ["defmt", "usb-hs", "flash-dry-run"]
 defmt = []
 usb-hs = []
+flash-dry-run = []
 
 [dependencies]
 cyw43-pio = { version = "0.1.0", features = ["defmt", "overclock"] }

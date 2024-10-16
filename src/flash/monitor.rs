@@ -2,7 +2,6 @@ use core::{
     sync::atomic::Ordering
 };
 use defmt::{info, error};
-use embassy_rp::pac as pac;
 
 use crate::flash::{
     ipc::{IPC, IpcWhat},
@@ -10,6 +9,7 @@ use crate::flash::{
 };
 
 pub fn handle_pending_flash() {
+    #[cfg(not(feature = "flash-dry-run"))]
     use embassy_rp::rom_data;
 
     #[allow(static_mut_refs)]
@@ -27,6 +27,7 @@ pub fn handle_pending_flash() {
             );
 
 
+            #[cfg(not(feature = "flash-dry-run"))]
             unsafe {
                 // SAFETY:
                 // none known
@@ -42,6 +43,7 @@ pub fn handle_pending_flash() {
                 ipc.regs[0],
             );
 
+            #[cfg(not(feature = "flash-dry-run"))]
             unsafe {
                 // SAFETY (TODO):
                 // none known
@@ -65,21 +67,22 @@ pub fn handle_pending_flash() {
                 ipc.regs[2],
             );
 
-            // count and data are passed reversed, see probe-rs:
-            // 0eaed1a2461ca, src/flashing/flasher.rs, L849-L851
-            let [addr, count, data] = ipc.regs;
 
-            let addr = flash_map_address(addr as u32);
-            let count = count as usize;
-            let data = data as *const u8;
-
-            debug_assert!(
-                addr as usize % embassy_rp::flash::WRITE_SIZE == 0,
-                "buffers must be aligned"
-            ); // trivial
-
-
+            #[cfg(not(feature = "flash-dry-run"))]
             flash_safe(|| {
+                // count and data are passed reversed, see probe-rs:
+                // 0eaed1a2461ca, src/flashing/flasher.rs, L849-L851
+                let [addr, count, data] = ipc.regs;
+
+                let addr = flash_map_address(addr as u32);
+                let count = count as usize;
+                let data = data as *const u8;
+
+                debug_assert!(
+                    addr as usize % embassy_rp::flash::WRITE_SIZE == 0,
+                    "buffers must be aligned"
+                ); // trivial
+
                 unsafe {
                     // SAFETY (TODO):
                     // - interrupts disabled
@@ -97,10 +100,11 @@ pub fn handle_pending_flash() {
                 ipc.regs[0],
             );
 
-            let addr = flash_map_address(ipc.regs[0] as u32);
-            let (count, block_size, block_cmd) = (0x1000, 0x10000, 0xd8);
-
+            #[cfg(not(feature = "flash-dry-run"))]
             flash_safe(|| {
+                let addr = flash_map_address(ipc.regs[0] as u32);
+                let (count, block_size, block_cmd) = (0x1000, 0x10000, 0xd8);
+
                 unsafe {
                     // SAFETY:
                     // - interrupts disabled
@@ -120,6 +124,7 @@ pub fn handle_pending_flash() {
     ipc.what.store(0, Ordering::SeqCst);
 }
 
+#[cfg(not(feature = "flash-dry-run"))]
 fn flash_map_address(addr: u32) -> u32 {
     extern "C" {
         static __bootloader_active_start: u32;
@@ -138,7 +143,10 @@ fn flash_map_address(addr: u32) -> u32 {
     addr - 0x10000000 + dfu_offset
 }
 
+#[cfg(not(feature = "flash-dry-run"))]
 fn flash_safe(cb: impl FnOnce()) {
+    use embassy_rp::pac as pac;
+
     assert!(pac::SIO.cpuid().read() == 0, "must be on core0");
 
     cortex_m::interrupt::free(|_| {
