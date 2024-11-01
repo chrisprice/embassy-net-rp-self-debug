@@ -3,6 +3,9 @@ name = "embassy-net-rp-self-debug"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+debug = 2
+
 [features]
 default = ["defmt", "usb-hs", "flash-dry-run"]
 defmt = []
