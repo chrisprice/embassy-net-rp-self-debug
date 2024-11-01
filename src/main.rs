@@ -46,6 +46,10 @@ fn main() -> ! {
 
     let p = embassy_rp::init(Default::default());
 
+    //let mut watchdog = embassy_rp::watchdog::Watchdog::new(p.WATCHDOG);
+    //watchdog.enable(false);
+    //^ disabled in embassy-boot's bootloader
+
     spawn_core1(
         p.CORE1,
         unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
