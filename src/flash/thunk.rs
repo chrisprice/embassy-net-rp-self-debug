@@ -1,7 +1,7 @@
 #![allow(static_mut_refs)]
 
 use core::sync::atomic::Ordering;
-use defmt::info;
+use defmt::{info, debug};
 
 use super::ipc::IpcWhat;
 
@@ -46,20 +46,28 @@ pub fn init() {
     unsafe {
         // FIXME: init ram via memory.x
         ALGO_THUNK = [on_init, uninit, program_page, erase_sector];
-        info!("flash::thunk::init, ALGO_THUNK is {:?}", ALGO_THUNK);
+        debug!("flash::thunk::init, ALGO_THUNK is {:?}", ALGO_THUNK);
     }
 }
 
 extern "C" fn on_init(address: usize, clock_or_zero: usize, op: usize /* Operation */) -> ! {
+    info!(
+        "flash algo, executing on_init(address={:#x}, clk_or_zero={}, op={})",
+        address,
+        clock_or_zero,
+        op
+    );
     ipc(
         IpcWhat::Init,
         &[address, clock_or_zero, op as _]
     );
+    info!("flash algo, posted IPC, waiting...");
 
     ipc_wait()
 }
 
 extern "C" fn uninit(op: usize /*Operation*/, _: usize, _: usize) -> ! {
+    info!("flash algo, executing uninit(op={})", op);
     ipc(
         IpcWhat::Deinit,
         &[op as _, 0, 0]
@@ -69,6 +77,12 @@ extern "C" fn uninit(op: usize /*Operation*/, _: usize, _: usize) -> ! {
 }
 
 extern "C" fn program_page(address: usize, byte_len: usize, buffer: usize) -> ! {
+    info!(
+        "flash algo, executing program_page(address={:#x}, byte_len={}, buffer={:#x})",
+        address,
+        byte_len,
+        buffer,
+    );
     let buffer = buffer as *const u8;
 
     ipc(
@@ -80,6 +94,7 @@ extern "C" fn program_page(address: usize, byte_len: usize, buffer: usize) -> ! 
 }
 
 extern "C" fn erase_sector(address: usize, _: usize, _: usize) -> ! {
+    info!("flash algo, executing erase_sector(address={:#x})", address);
     ipc(
         IpcWhat::Erase,
         &[address, 0, 0]
@@ -103,6 +118,7 @@ fn ipc_wait() -> ! {
         }
     });
 
+    info!("flash algo, got fin, exiting...");
     let exit_code = 0;
     halt(exit_code)
 }
