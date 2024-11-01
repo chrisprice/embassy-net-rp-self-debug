@@ -28,14 +28,17 @@ pub fn handle_pending_flash() {
 
 
             #[cfg(not(feature = "flash-dry-run"))]
-            unsafe {
-                // SAFETY:
-                // none known
-                rom_data::connect_internal_flash(); // "IF"
-                rom_data::flash_exit_xip(); // "EX"
+            {
+                unsafe {
+                    // SAFETY:
+                    // none known
+                    rom_data::connect_internal_flash(); // "IF"
+                    rom_data::flash_exit_xip(); // "EX"
+                }
+                info!("init done");
             }
-
-            info!("init done");
+            #[cfg(feature = "flash-dry-run")]
+            info!("init \"done\" (dry run)");
         }
         Ok(Some(IpcWhat::Deinit)) => {
             info!(
