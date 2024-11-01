@@ -11,6 +11,10 @@
 
 `$ cargo run --release`
 
+or for dry-run (no actual flashing) and more logging output:
+
+`$ DEFMT_LOG=info cargo build --release --features flash-dry-run`
+
 ## Attach probe-rs OTA
 
 ```bash
