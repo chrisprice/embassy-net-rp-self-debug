@@ -7,7 +7,7 @@ use super::ipc::IpcWhat;
 
 #[used]
 #[link_section = ".ipc_thunk"]
-static mut ALGO_THUNK: [fn(usize, usize, usize) -> !; 4] = [
+static mut ALGO_THUNK: [extern "C" fn(usize, usize, usize) -> !; 4] = [
     on_init,
     uninit,
     program_page,
@@ -50,7 +50,7 @@ pub fn init() {
     }
 }
 
-fn on_init(address: usize, clock_or_zero: usize, op: usize /* Operation */) -> ! {
+extern "C" fn on_init(address: usize, clock_or_zero: usize, op: usize /* Operation */) -> ! {
     ipc(
         IpcWhat::Init,
         &[address, clock_or_zero, op as _]
@@ -59,7 +59,7 @@ fn on_init(address: usize, clock_or_zero: usize, op: usize /* Operation */) -> !
     ipc_wait()
 }
 
-fn uninit(op: usize /*Operation*/, _: usize, _: usize) -> ! {
+extern "C" fn uninit(op: usize /*Operation*/, _: usize, _: usize) -> ! {
     ipc(
         IpcWhat::Deinit,
         &[op as _, 0, 0]
@@ -68,7 +68,7 @@ fn uninit(op: usize /*Operation*/, _: usize, _: usize) -> ! {
     ipc_wait()
 }
 
-fn program_page(address: usize, byte_len: usize, buffer: usize) -> ! {
+extern "C" fn program_page(address: usize, byte_len: usize, buffer: usize) -> ! {
     let buffer = buffer as *const u8;
 
     ipc(
@@ -79,7 +79,7 @@ fn program_page(address: usize, byte_len: usize, buffer: usize) -> ! {
     ipc_wait()
 }
 
-fn erase_sector(address: usize, _: usize, _: usize) -> ! {
+extern "C" fn erase_sector(address: usize, _: usize, _: usize) -> ! {
     ipc(
         IpcWhat::Erase,
         &[address, 0, 0]

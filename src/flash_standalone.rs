@@ -1,7 +1,9 @@
 #![no_std]
 #![no_main]
 
-const THUNK: *const [fn(usize, usize, usize) -> !; 4] = 0x20000000 as _;
+type IpcFn = extern "C" fn(usize, usize, usize) -> !;
+
+const THUNK: *const [IpcFn; 4] = 0x20000000 as _;
 
 #[link_section = ".text"]
 #[no_mangle]
