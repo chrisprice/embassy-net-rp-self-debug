@@ -1,7 +1,7 @@
 MEMORY {
     BOOT2 : ORIGIN = 0x10000000, LENGTH = 0x100
     /* FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100 */
-    RAM   : ORIGIN = 0x20000000, LENGTH = 256K /* RAM end: 0x20040000 */
+    RAM   : ORIGIN = 0x20000000, LENGTH = 264K /* RAM end: 0x20040000 */
 
     /* copied from embassy/examples/boot/bootloader/rp/memory.x */
     /*BOOTLOADER       : ORIGIN = 0x10000100, LENGTH = 24K /_* bootloader lives here, can drop to 8k *_/*/
