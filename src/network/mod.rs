@@ -1,5 +1,5 @@
 use cyw43_pio::PioSpi;
-use defmt::error;
+use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
 use embassy_rp::{
@@ -97,6 +97,8 @@ pub async fn init_network(
     while !stack.is_config_up() {
         Timer::after_millis(100).await;
     }
+
+    info!("network initialized {}", stack.config_v4().unwrap().address);
 
     stack
 }
