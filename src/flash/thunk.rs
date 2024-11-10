@@ -5,6 +5,9 @@ use defmt::info;
 
 use super::ipc::IpcWhat;
 
+static ALGO_THUNK: [extern "C" fn(usize, usize, usize) -> usize; 4] =
+    [on_init, uninit, program_page, erase_sector];
+
 #[allow(dead_code)]
 #[repr(C)]
 pub enum Operation {
@@ -34,18 +37,12 @@ pub enum Operation {
 // }
 
 pub fn init() {
+    // TODO: Convert this to linker magic
+    let size = size_of::<extern "C" fn(usize, usize, usize) -> usize>();
+    let src = ALGO_THUNK.as_ptr();
+    let base_address: usize = 0x21040000 - size * ALGO_THUNK.len();
     unsafe {
-        const BASE_ADDR: usize = 0x2003FC00;
-        let functions: [extern "C" fn(usize, usize, usize) -> usize; 4] =
-            [on_init, uninit, program_page, erase_sector];
-        for (i, function) in functions.into_iter().enumerate() {
-            // Space the addresses such that the flash_algorithm functions are each at the same offset
-            // from their respective address.
-            core::ptr::write_volatile(
-                (BASE_ADDR + (i * 4) * size_of::<usize>()) as *mut usize,
-                *((&function as *const _ as usize) as *const usize),
-            );
-        }
+        core::ptr::copy_nonoverlapping(src, base_address as *mut _, ALGO_THUNK.len());
     }
 }
 
