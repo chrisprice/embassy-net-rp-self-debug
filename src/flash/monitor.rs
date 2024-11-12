@@ -1,121 +1,56 @@
-use core::{
-    sync::atomic::Ordering
+use core::sync::atomic::Ordering;
+use defmt::{error, info};
+use embassy_rp::{
+    flash::{Async, Flash, ERASE_SIZE},
+    peripherals::FLASH,
+    rom_data,
+    watchdog::Watchdog,
 };
-use defmt::{info, error};
+use embassy_time::Duration;
 
-use crate::flash::{
-    ipc::{IPC, IpcWhat},
-    thunk::Operation,
+use crate::{
+    flash::ipc::{IpcWhat, IPC},
+    FLASH_SIZE,
 };
 
-pub fn handle_pending_flash() {
-    #[cfg(not(feature = "flash-dry-run"))]
-    use embassy_rp::rom_data;
-
+pub fn handle_pending_flash(flash: &mut Flash<'static, FLASH, Async, FLASH_SIZE>) {
     #[allow(static_mut_refs)]
     let ipc = unsafe { &IPC };
 
     match ipc.read_what() {
         Ok(None) => return,
 
-        Ok(Some(IpcWhat::Init)) => {
-            info!(
-                "found init({:#x}, {:#x}, {:#x}), initialising...",
-                ipc.regs[0],
-                ipc.regs[1],
-                ipc.regs[2],
-            );
-
-
-            #[cfg(not(feature = "flash-dry-run"))]
-            {
-                unsafe {
-                    // SAFETY:
-                    // none known
-                    rom_data::connect_internal_flash(); // "IF"
-                    rom_data::flash_exit_xip(); // "EX"
-                }
-                info!("init done");
-            }
-            #[cfg(feature = "flash-dry-run")]
-            info!("init \"done\" (dry run)");
-        }
-        Ok(Some(IpcWhat::Deinit)) => {
-            info!(
-                "found deinit({:#x}), flushing & resoring xip...",
-                ipc.regs[0],
-            );
-
-            #[cfg(not(feature = "flash-dry-run"))]
-            unsafe {
-                // SAFETY (TODO):
-                // none known
-                rom_data::flash_flush_cache(); // "FX"
-                rom_data::flash_enter_cmd_xip(); // "CX"
-            }
-
-            info!("deinit done");
-
-            if ipc.regs[0] == Operation::Program as usize {
-                // all done, laters
-                info!("deinit(Operation::Program) detected, finalising...");
-                flash_done();
-            }
-        }
         Ok(Some(IpcWhat::Program)) => {
             info!(
                 "found program_page({:#x}, {:#x}, {:#x}), programming...",
-                ipc.regs[0],
-                ipc.regs[1],
-                ipc.regs[2],
+                ipc.regs[0], ipc.regs[1], ipc.regs[2],
             );
 
-
             #[cfg(not(feature = "flash-dry-run"))]
-            flash_safe(|| {
-                // count and data are passed reversed, see probe-rs:
-                // 0eaed1a2461ca, src/flashing/flasher.rs, L849-L851
+            {
                 let [addr, count, data] = ipc.regs;
 
                 let addr = flash_map_address(addr as u32);
                 let count = count as usize;
                 let data = data as *const u8;
 
-                debug_assert!(
-                    addr as usize % embassy_rp::flash::WRITE_SIZE == 0,
-                    "buffers must be aligned"
-                ); // trivial
-
-                unsafe {
-                    // SAFETY (TODO):
-                    // - interrupts disabled
-                    // - 2nd core is running code in ram (flash algo), interrupts also disabled
-                    // - DMA is not accessing flash
-                    rom_data::flash_range_program(addr, data, count) // "RP"
-                }
-            });
+                let data = unsafe { core::slice::from_raw_parts(data, count) };
+                info!("programming {:#x} to {:#x}", addr, addr + count as u32);
+                flash.blocking_write(addr, data).unwrap();
+            }
 
             info!("program_page done");
         }
         Ok(Some(IpcWhat::Erase)) => {
-            info!(
-                "found erase_sector({:#x}), erasing...",
-                ipc.regs[0],
-            );
+            info!("found erase_sector({:#x}), erasing...", ipc.regs[0],);
 
             #[cfg(not(feature = "flash-dry-run"))]
-            flash_safe(|| {
-                let addr = flash_map_address(ipc.regs[0] as u32);
-                let (count, block_size, block_cmd) = (0x1000, 0x10000, 0xd8);
-
-                unsafe {
-                    // SAFETY:
-                    // - interrupts disabled
-                    // - 2nd core is running code in ram (flash algo), interrupts also disabled
-                    // - DMA is not accessing flash
-                    rom_data::flash_range_erase(addr, count, block_size, block_cmd) // "RE"
-                }
-            });
+            {
+                let from = flash_map_address(ipc.regs[0] as u32);
+                let to = from + ERASE_SIZE as u32; // TODO: this is way less than we need
+                info!("erasing {:#x} to {:#x}", from, to);
+                flash.blocking_erase(from, to).unwrap();
+            }
 
             info!("erase done");
         }
@@ -146,24 +81,12 @@ fn flash_map_address(addr: u32) -> u32 {
     addr - 0x10000000 + dfu_offset
 }
 
-#[cfg(not(feature = "flash-dry-run"))]
-fn flash_safe(cb: impl FnOnce()) {
-    use embassy_rp::pac as pac;
 
-    assert!(pac::SIO.cpuid().read() == 0, "must be on core0");
-
-    cortex_m::interrupt::free(|_| {
-        // TODO: wait for dma to finish
-
-        cb()
-    });
-}
-
-fn flash_done() -> ! {
+fn flash_done() {
     use core::cell::RefCell;
-    use embassy_sync::blocking_mutex::Mutex;
-    use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig, BlockingFirmwareUpdater};
+    use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
     use embassy_rp::flash::Flash;
+    use embassy_sync::blocking_mutex::Mutex;
 
     let p = unsafe { embassy_rp::Peripherals::steal() };
 
@@ -181,10 +104,10 @@ fn flash_done() -> ! {
 
     // this erases DFU and gives us the writer
     // we don't need this - probe-rs does the erase & write
-    //updater.prepare_update();
+    // updater.prepare_update().unwrap();
 
     info!("marking bootloader state as updated...");
-    updater.mark_updated().unwrap(); // sets state parititon, fill to SWAP_MAGIC, i.e. 0xf0
+    // updater.mark_updated().unwrap(); // sets state parititon, fill to SWAP_MAGIC, i.e. 0xf0
 
     info!("marked bootloader state as updated");
 
@@ -192,7 +115,8 @@ fn flash_done() -> ! {
     // upon finding all SWAP_MAGICs, indicate it's in State::Swap, do the swap()
     // and boot us. we reset to initiate this:
 
-    info!("resetting...");
+    info!("scheduling reset for 10 sec... (in a very cheap way)");
+    Watchdog::new(p.WATCHDOG).start(Duration::from_millis(8000));
 
-    cortex_m::peripheral::SCB::sys_reset()
+    // rom_data::reset_to_usb_boot(0, 1 | 2);
 }

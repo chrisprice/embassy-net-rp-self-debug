@@ -17,10 +17,11 @@ use dap_leds::DapLeds;
 use defmt::*;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
+use embassy_rp::flash::{Async, Flash};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::pac::SYSCFG;
-use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, FLASH, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, clocks};
 use embassy_time::Duration;
@@ -38,6 +39,8 @@ bind_interrupts!(struct Irqs0 {
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
+
+const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -70,8 +73,10 @@ fn main() -> ! {
         p.DMA_CH0,
     );
 
+    let flash = embassy_rp::flash::Flash::new(p.FLASH, p.DMA_CH1);
+
     let executor0 = EXECUTOR0.init(Executor::new());
-    executor0.run(|spawner| unwrap!(spawner.spawn(core0_task(spawner, spi, p.PIN_23))))
+    executor0.run(|spawner| unwrap!(spawner.spawn(core0_task(spawner, spi, p.PIN_23, flash))))
 }
 
 #[embassy_executor::task]
@@ -79,6 +84,7 @@ async fn core0_task(
     spawner: Spawner,
     spi: PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
     pin_23: PIN_23,
+    mut flash: Flash<'static, FLASH, Async, FLASH_SIZE>,
 ) {
     info!("init'ing network...");
     let stack = network::init_network(
@@ -104,6 +110,7 @@ async fn core0_task(
     let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
     info!("dap setup");
+
 
     loop {
         info!("Waiting for connection");
@@ -140,7 +147,7 @@ async fn core0_task(
 
             // possibly move this to a polling task
             // or just use proper IPC / SIO.fifo
-            flash::monitor::handle_pending_flash();
+            flash::monitor::handle_pending_flash(&mut flash);
 
             trace!("Responding with {} bytes", n);
 

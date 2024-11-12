@@ -5,8 +5,8 @@ use defmt::info;
 
 use super::ipc::IpcWhat;
 
-static ALGO_THUNK: [extern "C" fn(usize, usize, usize) -> usize; 4] =
-    [on_init, uninit, program_page, erase_sector];
+static ALGO_THUNK: [extern "C" fn(usize, usize, usize) -> usize; 2] =
+    [program_page, erase_sector];
 
 #[allow(dead_code)]
 #[repr(C)]
@@ -40,32 +40,10 @@ pub fn init() {
     // TODO: Convert this to linker magic
     let size = size_of::<extern "C" fn(usize, usize, usize) -> usize>();
     let src = ALGO_THUNK.as_ptr();
-    let base_address: usize = 0x21040000 - size * ALGO_THUNK.len();
+    let base_address: usize = 0x21040000 - size * ALGO_THUNK.len(); // 0x2103FFF8
     unsafe {
         core::ptr::copy_nonoverlapping(src, base_address as *mut _, ALGO_THUNK.len());
     }
-}
-
-extern "C" fn on_init(
-    address: usize,
-    clock_or_zero: usize,
-    op: usize, /* Operation */
-) -> usize {
-    info!(
-        "flash algo, executing on_init(address={:#x}, clk_or_zero={}, op={})",
-        address, clock_or_zero, op
-    );
-    ipc(IpcWhat::Init, &[address, clock_or_zero, op as _]);
-    info!("flash algo, posted IPC, waiting...");
-
-    ipc_wait()
-}
-
-extern "C" fn uninit(op: usize /*Operation*/, _: usize, _: usize) -> usize {
-    info!("flash algo, executing uninit(op={})", op);
-    ipc(IpcWhat::Deinit, &[op as _, 0, 0]);
-
-    ipc_wait()
 }
 
 extern "C" fn program_page(address: usize, byte_len: usize, buffer: usize) -> usize {
