@@ -10,11 +10,14 @@ mod swj;
 mod swo;
 mod flash;
 
+use core::cell::RefCell;
+
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
 use dap::dap::DapVersion;
 use dap_leds::DapLeds;
 use defmt::*;
+use embassy_boot_rp::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
 use embassy_rp::flash::{Async, Flash};
@@ -82,10 +85,10 @@ fn main() -> ! {
 #[embassy_executor::task]
 async fn core0_task(
     spawner: Spawner,
-    spi: PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
+    spi: PioSpi<'static, PIO0, 0, DMA_CH0>,
     pin_23: PIN_23,
-    mut flash: Flash<'static, FLASH, Async, FLASH_SIZE>,
-) {
+    flash: Flash<'static, FLASH, Async, FLASH_SIZE>,
+) -> ! {
     info!("init'ing network...");
     let stack = network::init_network(
         spawner,
@@ -111,6 +114,12 @@ async fn core0_task(
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
     info!("dap setup");
 
+    let flash = embassy_sync::blocking_mutex::Mutex::new(RefCell::new(flash)); // TODO: wrong raw mutex
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
+    
+    let mut aligned = embassy_boot_rp::AlignedBuffer([0; 1]);
+    
+    let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
 
     loop {
         info!("Waiting for connection");
@@ -147,7 +156,7 @@ async fn core0_task(
 
             // possibly move this to a polling task
             // or just use proper IPC / SIO.fifo
-            flash::monitor::handle_pending_flash(&mut flash);
+            flash::monitor::handle_pending_flash(&mut updater);
 
             trace!("Responding with {} bytes", n);
 

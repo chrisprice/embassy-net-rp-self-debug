@@ -9,7 +9,9 @@ pub struct Ipc {
 
 #[repr(u8)]
 pub enum IpcWhat {
-    Program = 1, // anything but zero,
+    Init = 1, // anything but zero,
+    Deinit,
+    Program,
     Erase,
 }
 
@@ -28,7 +30,7 @@ impl Ipc {
         let w: u8 = self.what.load(Ordering::Acquire);
         match w {
             0 => Ok(None),
-            1..=2 => Ok(Some(unsafe {
+            1..=4 => Ok(Some(unsafe {
                 // SAFETY: repr(u8) on IpcWhat
                 mem::transmute(w)
             })),

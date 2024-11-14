@@ -30,8 +30,8 @@ pub async fn init_network(
     ssid: &'static str,
     passphrase: &'static str,
     ip_address: Address,
-    pio_spi: PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
-    pwr: Output<'static, PIN_23>,
+    pio_spi: PioSpi<'static, PIO0, 0, DMA_CH0>,
+    pwr: Output<'static>,
 ) -> &'static Stack<cyw43::NetDriver<'static>> {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
@@ -107,8 +107,8 @@ pub async fn init_network(
 async fn wifi_task(
     runner: cyw43::Runner<
         'static,
-        Output<'static, PIN_23>,
-        PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
+        Output<'static>,
+        PioSpi<'static, PIO0, 0, DMA_CH0>,
     >,
 ) -> ! {
     runner.run().await
