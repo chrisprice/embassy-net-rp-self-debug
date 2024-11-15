@@ -3,12 +3,12 @@
 
 mod dap;
 mod dap_leds;
+mod flash;
 mod jtag;
 mod network;
 mod swd;
 mod swj;
 mod swo;
-mod flash;
 
 use core::cell::RefCell;
 
@@ -17,17 +17,18 @@ use cyw43_pio::PioSpi;
 use dap::dap::DapVersion;
 use dap_leds::DapLeds;
 use defmt::*;
-use embassy_boot_rp::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
+use embassy_boot_rp::{BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig};
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
 use embassy_rp::flash::{Async, Flash};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::pac::SYSCFG;
-use embassy_rp::peripherals::{DMA_CH0, FLASH, PIN_23, PIN_25, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, FLASH, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::watchdog::Watchdog;
 use embassy_rp::{bind_interrupts, clocks};
-use embassy_time::Duration;
+use embassy_time::{Duration, Ticker};
 use embedded_io_async::Write;
 use static_cell::StaticCell;
 use swj::Swj;
@@ -42,6 +43,7 @@ bind_interrupts!(struct Irqs0 {
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
+static WATCHDOG: StaticCell<Watchdog> = StaticCell::new();
 
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
@@ -78,8 +80,22 @@ fn main() -> ! {
 
     let flash = embassy_rp::flash::Flash::new(p.FLASH, p.DMA_CH1);
 
+    let watchdog = WATCHDOG.init(Watchdog::new(p.WATCHDOG));
+
     let executor0 = EXECUTOR0.init(Executor::new());
-    executor0.run(|spawner| unwrap!(spawner.spawn(core0_task(spawner, spi, p.PIN_23, flash))))
+    executor0.run(|spawner| {
+        unwrap!(spawner.spawn(din_dins(watchdog)));
+        unwrap!(spawner.spawn(core0_task(spawner, spi, p.PIN_23, flash)));
+    });
+}
+
+#[embassy_executor::task]
+async fn din_dins(watchdog: &'static mut Watchdog) {
+    let mut ticker = Ticker::every(Duration::from_secs(5));
+    loop {
+        watchdog.feed();
+        ticker.next().await;
+    }
 }
 
 #[embassy_executor::task]
@@ -114,12 +130,14 @@ async fn core0_task(
     let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
     info!("dap setup");
 
-    let flash = embassy_sync::blocking_mutex::Mutex::new(RefCell::new(flash)); // TODO: wrong raw mutex
+    let flash = embassy_sync::blocking_mutex::Mutex::new(RefCell::new(flash));
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
-    
     let mut aligned = embassy_boot_rp::AlignedBuffer([0; 1]);
-    
     let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
+
+    
+    // feels like we should be doing something like this here...
+    // updater.mark_booted().unwrap();
 
     loop {
         info!("Waiting for connection");
