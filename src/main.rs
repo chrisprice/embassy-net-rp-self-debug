@@ -139,7 +139,7 @@ async fn core0_task(
     // feels like we should be doing something like this here...
     // updater.mark_booted().unwrap();
 
-    loop {
+    'outer: loop {
         info!("Waiting for connection");
         if socket.accept(1234).await.is_err() {
             warn!("Failed to accept connection");
@@ -156,7 +156,10 @@ async fn core0_task(
             let n = match socket.read(&mut request_buffer).await {
                 Ok(0) => {
                     warn!("read EOF");
-                    break;
+                    dap.suspend();
+                    socket.abort();
+
+                    continue 'outer;
                 }
                 Ok(n) => n,
                 Err(e) => {
