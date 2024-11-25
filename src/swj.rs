@@ -22,30 +22,13 @@ impl dap::swj::Dependencies<Swd, Jtag> for Swj {
         todo!()
     }
 
-    async fn process_swj_sequence(&mut self, data: &[u8], mut bits: usize) {
+    async fn process_swj_sequence(&mut self, data: &[u8], bits: usize) {
         self.swd.dbgforce.modify(|r| r.set_proc1_attach(true));
 
         self.swd.delay_half_period().await;
 
         trace!("Running SWJ sequence: {:08b}, len = {}", data, bits);
-        for byte in data {
-            let mut byte = *byte;
-            let frame_bits = core::cmp::min(bits, 8);
-            for _ in 0..frame_bits {
-                let bit = byte & 1;
-                byte >>= 1;
-                if bit != 0 {
-                    self.swd.dbgforce.modify(|r| r.set_proc1_swdi(true));
-                } else {
-                    self.swd.dbgforce.modify(|r| r.set_proc1_swdi(false));
-                }
-                self.swd.dbgforce.modify(|r| r.set_proc1_swclk(false));
-                self.swd.delay_half_period().await;
-                self.swd.dbgforce.modify(|r| r.set_proc1_swclk(true));
-                self.swd.delay_half_period().await;
-            }
-            bits -= frame_bits;
-        }
+        self.swd.txn(data, bits).await;
     }
 
     fn process_swj_clock(&mut self, _max_frequency: u32) -> bool {

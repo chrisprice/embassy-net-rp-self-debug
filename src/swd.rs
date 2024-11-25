@@ -137,6 +137,19 @@ impl dap::swd::Swd<Swj> for Swd {
 }
 
 impl Swd {
+    pub async fn txn(&mut self, data: &[u8], mut bits: usize) {
+        for byte in data {
+            let mut byte = *byte;
+            let frame_bits = core::cmp::min(bits, 8);
+            for _ in 0..frame_bits {
+                let bit = byte & 1;
+                byte >>= 1;
+                self.write_bit(bit).await;
+            }
+            bits -= frame_bits;
+        }
+    }
+
     async fn tx8(&mut self, mut data: u8) {
         for _ in 0..8 {
             self.write_bit(data & 1).await;
