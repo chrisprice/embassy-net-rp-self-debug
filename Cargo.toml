@@ -60,3 +60,4 @@ bitflags = "2.6.0"
 replace_with = { version = "0.1.7", default-features = false }
 embassy-boot-rp = { version = "0.3.0", features = ["defmt"] }
 embassy-embedded-hal = "0.2.0"
+dap-rs = "0.2.0"

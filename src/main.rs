@@ -2,37 +2,28 @@
 #![no_main]
 
 mod dap;
-mod dap_leds;
 mod flash;
-mod jtag;
 mod network;
-mod swd;
-mod swj;
-mod swo;
 
 use core::cell::RefCell;
 
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
-use dap::dap::DapVersion;
-use dap_leds::DapLeds;
+use dap_rs::dap::DapVersion;
 use defmt::*;
-use embassy_boot_rp::{BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig};
+use embassy_boot_rp::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
+use embassy_rp::bind_interrupts;
 use embassy_rp::flash::{Async, Flash};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::pac::SYSCFG;
 use embassy_rp::peripherals::{DMA_CH0, FLASH, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::{bind_interrupts, clocks};
 use embassy_time::{Duration, Ticker};
 use embedded_io_async::Write;
 use static_cell::StaticCell;
-use swj::Swj;
-use swo::Swo;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -119,15 +110,14 @@ async fn core0_task(
 
     info!("network ready");
 
-    let mut rx_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
-    let mut tx_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
+    let mut rx_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
+    let mut tx_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
 
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
     info!("socket setup");
 
-    let swj = Swj::new(swd::Swd::new(clocks::clk_sys_freq(), SYSCFG.dbgforce()));
-    let mut dap = dap::dap::Dap::new(swj, DapLeds::new(), Swo::new(), "VERSION");
+    let mut dap = dap::Dap::new();
     info!("dap setup");
 
     let flash = embassy_sync::blocking_mutex::Mutex::new(RefCell::new(flash));
@@ -135,7 +125,6 @@ async fn core0_task(
     let mut aligned = embassy_boot_rp::AlignedBuffer([0; 1]);
     let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
 
-    
     // feels like we should be doing something like this here...
     // updater.mark_booted().unwrap();
 
@@ -149,7 +138,7 @@ async fn core0_task(
         info!("Connected");
 
         loop {
-            let mut request_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
+            let mut request_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
 
             trace!("Waiting for request");
 
@@ -170,10 +159,8 @@ async fn core0_task(
 
             trace!("Received {} bytes", n);
 
-            let mut response_buffer = [0; dap::dap::DAP2_PACKET_SIZE as usize];
-            let n = dap
-                .process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2)
-                .await;
+            let mut response_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
+            let n = dap.process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2);
 
             // possibly move this to a polling task
             // or just use proper IPC / SIO.fifo
