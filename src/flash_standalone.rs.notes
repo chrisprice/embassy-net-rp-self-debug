@@ -1,1 +1,0 @@
-flash rom has memset & memcpy, see embassy/embassy-rp/src/rom_data.rs
