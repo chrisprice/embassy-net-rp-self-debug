@@ -128,7 +128,7 @@ async fn core0_task(
     // feels like we should be doing something like this here...
     // updater.mark_booted().unwrap();
 
-    'outer: loop {
+    loop {
         info!("Waiting for connection");
         if socket.accept(1234).await.is_err() {
             warn!("Failed to accept connection");
@@ -145,10 +145,7 @@ async fn core0_task(
             let n = match socket.read(&mut request_buffer).await {
                 Ok(0) => {
                     warn!("read EOF");
-                    dap.suspend();
-                    socket.abort();
-
-                    continue 'outer;
+                    break;
                 }
                 Ok(n) => n,
                 Err(e) => {
@@ -179,7 +176,16 @@ async fn core0_task(
 
         dap.suspend();
         socket.abort();
-        let _ = socket.flush().await;
+
+        if let embassy_net::tcp::State::CloseWait = socket.state() {
+            let _ = socket.flush().await;
+        }
+
+        if let embassy_net::tcp::State::Closed = socket.state() {
+            info!("Connection closed");
+        } else {
+            warn!("Failed to close connection");
+        }
     }
 }
 
