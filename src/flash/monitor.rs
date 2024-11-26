@@ -98,18 +98,12 @@ pub fn handle_pending_flash<'a>(
 fn flash_map_address(addr: u32) -> u32 {
     extern "C" {
         static __bootloader_active_start: u32;
-        static __bootloader_dfu_start: u32;
     }
 
     // 1. Addresses are given to us relative to memory, we want them relative to flash.
     //    Flash is mapped at 0x10000000, so we subtract that
-    // 2. Addresses are for FLASH (memory.x), we want to write into DFU,
-    // so add the offset from FLASH to DFU
+    // 2. Addresses will include an offset for the bootloader, we subtract that too
 
     let active_start = unsafe { &__bootloader_active_start as *const _ as u32 };
-    // let dfu_start = unsafe { &__bootloader_dfu_start as *const _ as u32 };
-    // let dfu_offset = dfu_start - active_start;
-
-    // addr - 0x10000000 + dfu_offset
     addr - 0x10000000 - active_start
 }
