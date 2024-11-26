@@ -1,10 +1,9 @@
 use dap_rs::jtag::Jtag;
-use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::pac::common::{Reg, RW};
 use embassy_rp::pac::syscfg::regs::Dbgforce;
 
 use dap_rs::{
-    dap::{self, DapLeds, DelayNs},
+    dap::{self, DapLeds},
     swd::Swd,
     swj::{self, Dependencies},
     swo::Swo,
@@ -13,8 +12,6 @@ use defmt::trace;
 use embassy_rp::pac::SYSCFG;
 
 pub struct Dap {
-    max_frequency: u32,
-    cpu_frequency: u32,
     dbgforce: Reg<Dbgforce, RW>,
 }
 
@@ -26,17 +23,9 @@ impl Dap {
         leds: LEDS,
     ) -> dap_rs::dap::Dap<'static, Dap, LEDS, embassy_time::Delay, Dap, Dap, Dap> {
         let inner = Dap {
-            max_frequency: clk_sys_freq(),
-            cpu_frequency: clk_sys_freq(),
             dbgforce: SYSCFG.dbgforce(),
         };
         dap_rs::dap::Dap::new(inner, leds, embassy_time::Delay, None, "")
-    }
-    fn delay_half_period(&mut self) {
-        let mut delay = embassy_time::Delay;
-        // TODO: validate this mathbomination
-        let half_period = 1_000_000 / self.max_frequency / 2;
-        delay.delay_us(half_period);
     }
 }
 
@@ -94,25 +83,16 @@ impl Dap {
 
     #[inline(always)]
     fn write_bit(&mut self, bit: u8) {
-        if bit != 0 {
-            self.dbgforce.modify(|r| r.set_proc1_swdi(true));
-        } else {
-            self.dbgforce.modify(|r| r.set_proc1_swdi(false));
-        }
-
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.delay_half_period();
+        self.dbgforce.modify(|r| r.set_proc1_swdi(bit != 0));
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        self.delay_half_period();
     }
 
     #[inline(always)]
     fn read_bit(&mut self) -> u8 {
         self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.delay_half_period();
         let bit = self.dbgforce.read().proc1_swdo() as u8;
         self.dbgforce.modify(|r| r.set_proc1_swclk(true));
-        self.delay_half_period();
 
         bit
     }
@@ -130,9 +110,6 @@ impl Dependencies<Dap, Dap> for Dap {
 
     fn process_swj_sequence(&mut self, data: &[u8], bits: usize) {
         self.dbgforce.modify(|r| r.set_proc1_attach(true));
-
-        self.delay_half_period();
-
         trace!("Running SWJ sequence: {:08b}, len = {}", data, bits);
         self.txn(data, bits);
     }
@@ -249,14 +226,8 @@ impl Swd<Dap> for Dap {
     }
 
     fn set_clock(&mut self, max_frequency: u32) -> bool {
-        trace!("SWD set clock: freq = {}", max_frequency);
-        if max_frequency < self.cpu_frequency {
-            self.max_frequency = max_frequency;
-            trace!("  freq = {}", max_frequency);
-            true
-        } else {
-            false
-        }
+        assert_eq!(max_frequency, 1_000_000, "probe-rs hard-coded frequency");
+        true
     }
 
     fn write_sequence(&mut self, _num_bits: usize, _data: &[u8]) -> dap_rs::swd::Result<()> {
