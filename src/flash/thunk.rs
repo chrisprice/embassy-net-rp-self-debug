@@ -95,28 +95,6 @@ fn ipc(what: IpcWhat, regs: &[usize; 3]) {
     ipc.what.store(what as u8, Ordering::SeqCst);
 }
 
-unsafe fn SIO_IRQ_PROC1() {
-    let sio = pac::SIO;
-    // Clear IRQ
-    sio.fifo().st().write(|w| w.set_wof(false));
-
-    while sio.fifo().st().read().vld() {
-        // Pause CORE1 execution and disable interrupts
-        if fifo_read_wfe() == PAUSE_TOKEN {
-            cortex_m::interrupt::disable();
-            // Signal to CORE0 that execution is paused
-            fifo_write(PAUSE_TOKEN);
-            // Wait for `resume` signal from CORE0
-            while fifo_read_wfe() != RESUME_TOKEN {
-                cortex_m::asm::nop();
-            }
-            cortex_m::interrupt::enable();
-            // Signal to CORE0 that execution is resumed
-            fifo_write(RESUME_TOKEN);
-        }
-    }
-}
-
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 
@@ -162,17 +140,6 @@ fn fifo_write(value: u32) {
     cortex_m::asm::sev();
 }
 
-// Pop a value from inter-core FIFO, block until available
-#[inline(always)]
-fn fifo_read() -> u32 {
-    let sio = pac::SIO;
-    // Wait until FIFO has data
-    while !sio.fifo().st().read().vld() {
-        cortex_m::asm::nop();
-    }
-    sio.fifo().rd().read()
-}
-
 // Pop a value from inter-core FIFO, `wfe` until available
 #[inline(always)]
 #[allow(unused)]
@@ -183,13 +150,4 @@ fn fifo_read_wfe() -> u32 {
         cortex_m::asm::wfe();
     }
     sio.fifo().rd().read()
-}
-
-// Drain inter-core FIFO
-#[inline(always)]
-fn fifo_drain() {
-    let sio = pac::SIO;
-    while sio.fifo().st().read().vld() {
-        let _ = sio.fifo().rd().read();
-    }
 }

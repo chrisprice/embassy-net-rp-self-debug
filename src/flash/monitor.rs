@@ -3,10 +3,8 @@ use defmt::{error, info};
 use embassy_boot_rp::BlockingFirmwareUpdater;
 use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_rp::{
-    flash::{Async, Flash, ERASE_SIZE},
-    interrupt::InterruptExt,
+    flash::{Async, Flash},
     peripherals::FLASH,
-    rom_data,
     watchdog::Watchdog,
 };
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -115,42 +113,3 @@ fn flash_map_address(addr: u32) -> u32 {
     // addr - 0x10000000 + dfu_offset
     addr - 0x10000000 - active_start
 }
-
-// fn flash_done() {
-//     use core::cell::RefCell;
-//     use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
-//     use embassy_rp::flash::Flash;
-//     use embassy_sync::blocking_mutex::Mutex;
-
-//     let p = unsafe { embassy_rp::Peripherals::steal() };
-
-//     const FLASH_SIZE: usize = 2 * 1024 * 1024;
-
-//     let flash = Flash::<_, _, FLASH_SIZE>::new_blocking(p.FLASH);
-//     let flash = Mutex::new(RefCell::new(flash));
-
-//     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
-
-//     info!("created FirmwareUpdaterConfig");
-
-//     let mut aligned = AlignedBuffer([0; 1]);
-//     let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
-
-//     // this erases DFU and gives us the writer
-//     // we don't need this - probe-rs does the erase & write
-//     // updater.prepare_update().unwrap();
-
-//     info!("marking bootloader state as updated...");
-//     // updater.mark_updated().unwrap(); // sets state parititon, fill to SWAP_MAGIC, i.e. 0xf0
-
-//     info!("marked bootloader state as updated");
-
-//     // bootloader (already flashed) will now check for 0xf0 (prepare_boot()) and,
-//     // upon finding all SWAP_MAGICs, indicate it's in State::Swap, do the swap()
-//     // and boot us. we reset to initiate this:
-
-//     info!("scheduling reset for 10 sec... (in a very cheap way)");
-//     Watchdog::new(p.WATCHDOG).start(Duration::from_millis(8000));
-
-//     // rom_data::reset_to_usb_boot(0, 1 | 2);
-// }

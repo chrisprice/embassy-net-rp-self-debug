@@ -5,7 +5,7 @@ use embassy_net::{Config, DhcpConfig, Ipv4Cidr, Stack, StackResources, StaticCon
 use embassy_rp::{
     clocks::RoscRng,
     gpio::Output,
-    peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0},
+    peripherals::{DMA_CH0, PIO0},
 };
 use embassy_time::Timer;
 use heapless::Vec;
