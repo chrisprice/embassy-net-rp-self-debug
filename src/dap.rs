@@ -110,7 +110,6 @@ impl Dependencies<Dap, Dap> for Dap {
 
     fn process_swj_sequence(&mut self, data: &[u8], bits: usize) {
         self.dbgforce.modify(|r| r.set_proc1_attach(true));
-        trace!("Running SWJ sequence: {:08b}, len = {}", data, bits);
         self.txn(data, bits);
     }
 
@@ -143,20 +142,16 @@ impl Swd<Dap> for Dap {
         apndp: dap_rs::swd::APnDP,
         a: dap_rs::swd::DPRegister,
     ) -> dap_rs::swd::Result<u32> {
-        trace!("SWD read, apndp: {}, addr: {}", apndp, a,);
         // Send request
         let req = dap_rs::swd::make_request(apndp, dap_rs::swd::RnW::R, a);
-        trace!("SWD tx request");
         self.tx::<8>(req);
 
-        trace!("SWD rx ack");
         // Read ack, 1 clock for turnaround and 3 for ACK
         let ack = self.rx::<4>() >> 1;
 
         match dap_rs::swd::Ack::try_ok(ack as u8) {
-            Ok(_) => trace!("    ack ok"),
+            Ok(_) => {}
             Err(e) => {
-                trace!("    ack error: {}", e);
                 // On non-OK ACK, target has released the bus but
                 // is still expecting a turnaround clock before
                 // the next request, and we need to take over the bus.
@@ -166,7 +161,6 @@ impl Swd<Dap> for Dap {
         }
 
         // Read data and parity
-        trace!("SWD rx data");
         let (data, parity) = self.read_data();
 
         // Turnaround + trailing
@@ -174,7 +168,6 @@ impl Swd<Dap> for Dap {
         self.tx::<8>(0); // Drive the SWDIO line to 0 to not float
 
         if parity as u8 == (data.count_ones() as u8 & 1) {
-            trace!("    data: 0x{:x}", data);
             Ok(data)
         } else {
             Err(dap_rs::swd::Error::BadParity)
@@ -187,25 +180,15 @@ impl Swd<Dap> for Dap {
         a: dap_rs::swd::DPRegister,
         data: u32,
     ) -> dap_rs::swd::Result<()> {
-        trace!(
-            "SWD write, apndp: {}, addr: {}, data: 0x{:x}",
-            apndp,
-            a,
-            data
-        );
-
         // Send request
         let req = dap_rs::swd::make_request(apndp, dap_rs::swd::RnW::W, a);
-        trace!("SWD tx request");
         self.tx::<8>(req);
 
         // Read ack, 1 clock for turnaround and 3 for ACK and 1 for turnaround
-        trace!("SWD rx ack");
         let ack = (self.rx::<5>() >> 1) & 0b111;
         match dap_rs::swd::Ack::try_ok(ack as u8) {
             Ok(_) => trace!("    ack ok"),
             Err(e) => {
-                trace!("    ack err: {}, data: {:b}", e, ack);
                 // On non-OK ACK, target has released the bus but
                 // is still expecting a turnaround clock before
                 // the next request, and we need to take over the bus.
@@ -215,7 +198,6 @@ impl Swd<Dap> for Dap {
         }
 
         // Send data and parity
-        trace!("SWD tx data");
         let parity = data.count_ones() & 1 == 1;
         self.send_data(data, parity);
 
