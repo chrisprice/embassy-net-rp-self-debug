@@ -44,7 +44,7 @@ pub async fn init_network(
 
     control.init(clm).await;
     control
-        .set_power_management(cyw43::PowerManagementMode::PowerSave)
+        .set_power_management(cyw43::PowerManagementMode::None)
         .await;
 
     let config = match ip_address {
