@@ -3,7 +3,6 @@
 
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
-use defmt::unwrap;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
 use embassy_net_rp_self_debug::Carol;
@@ -14,6 +13,7 @@ use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Sender};
+use embassy_time::Duration;
 use rand::RngCore;
 use static_cell::StaticCell;
 
@@ -111,8 +111,9 @@ async fn main(_s: Spawner) -> ! {
         sender: net_control_channel.sender(),
     };
 
-    const DEBUG_PORT: u16 = 1234;
-    embassy_net_rp_self_debug::Bob::new(p.CORE1, net_init_args, net_init, DEBUG_PORT);
+    const PORT: u16 = 1234;
+    const TIMEOUT: Duration = Duration::from_secs(30);
+    embassy_net_rp_self_debug::Bob::new(p.CORE1, net_init_args, net_init, PORT, TIMEOUT);
 
     loop {
         nop();

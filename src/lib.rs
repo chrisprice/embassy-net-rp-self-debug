@@ -2,6 +2,8 @@
 
 mod dap;
 
+use core::time;
+
 use dap::Dap;
 use dap_rs::dap::DapVersion;
 use defmt::{debug, trace, unwrap, warn};
@@ -12,6 +14,7 @@ use embassy_rp::{
     peripherals::CORE1,
 };
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex, once_lock::OnceLock};
+use embassy_time::Duration;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
 
@@ -24,9 +27,12 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 static DEBUG_SOCKET: DebugSocketLock = OnceLock::new();
 
 #[embassy_executor::task]
-async fn debug_listen_task(port: u16) -> ! {
+async fn debug_listen_task(port: u16, timeout: Duration) -> ! {
     let mut dap = Dap::new();
+
     let mut socket = DEBUG_SOCKET.get().await.lock().await;
+    socket.set_timeout(Some(timeout));
+
     loop {
         debug!("Waiting for connection");
 
@@ -114,6 +120,7 @@ impl Bob {
         init_args: ARGS,
         net_init: impl FnOnce(ARGS, Carol) -> SpawnToken<S> + Send + 'static,
         port: u16,
+        timeout: Duration,
     ) -> Self
     where
         ARGS: Send + 'static,
@@ -125,7 +132,7 @@ impl Bob {
                 let executor1 = EXECUTOR1.init(Executor::new());
                 executor1.run(|spawner| {
                     unwrap!(spawner.spawn(net_init(init_args, Carol::new())));
-                    unwrap!(spawner.spawn(debug_listen_task(port)))
+                    unwrap!(spawner.spawn(debug_listen_task(port, timeout)))
                 });
             },
         );
