@@ -111,7 +111,8 @@ async fn main(_s: Spawner) -> ! {
         sender: net_control_channel.sender(),
     };
 
-    embassy_net_rp_self_debug::Bob::new(p.CORE1, net_init_args, net_init);
+    const DEBUG_PORT: u16 = 1234;
+    embassy_net_rp_self_debug::Bob::new(p.CORE1, net_init_args, net_init, DEBUG_PORT);
 
     loop {
         nop();
