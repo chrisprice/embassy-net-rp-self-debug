@@ -7,10 +7,11 @@ edition = "2021"
 debug = 2
 
 [features]
-default = ["defmt", "usb-hs"]
+default = ["defmt", "usb-hs", "flash-size-2048k"]
 defmt = []
 usb-hs = []
 flash-dry-run = []
+flash-size-2048k = []
 
 [dependencies]
 cyw43-pio = { version = "0.2.0", features = ["defmt", "overclock"] }

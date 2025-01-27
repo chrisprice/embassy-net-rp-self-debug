@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
+
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
 use embassy_executor::Spawner;
@@ -8,10 +10,11 @@ use embassy_net::{Config, DhcpConfig, Stack, StackResources};
 use embassy_net_rp_self_debug::Carol;
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
+use embassy_rp::flash::{Async, Flash};
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, FLASH, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::channel::{Channel, Sender};
 use embassy_time::Duration;
 use rand::RngCore;
@@ -67,7 +70,10 @@ async fn net_init(args: NetInitArgs<'static>, carol: Carol) -> ! {
 
     carol.listen(stack);
 
-    control.join_wpa2("ssid", "passphrase").await.map_err(|_| "failed to join network");
+    control
+        .join_wpa2("ssid", "passphrase")
+        .await
+        .map_err(|_| "failed to join network");
 
     stack.wait_config_up().await;
 
@@ -111,9 +117,11 @@ async fn main(_s: Spawner) -> ! {
         sender: net_control_channel.sender(),
     };
 
+    let flash = Flash::new(p.FLASH, p.DMA_CH1);
+
     const PORT: u16 = 1234;
     const TIMEOUT: Duration = Duration::from_secs(30);
-    embassy_net_rp_self_debug::Bob::new(p.CORE1, net_init_args, net_init, PORT, TIMEOUT);
+    embassy_net_rp_self_debug::Bob::new(p.CORE1, flash, net_init_args, net_init, PORT, TIMEOUT);
 
     loop {
         nop();

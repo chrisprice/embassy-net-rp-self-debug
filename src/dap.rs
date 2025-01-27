@@ -19,7 +19,7 @@ impl Dap {
     pub fn new() -> dap_rs::dap::Dap<'static, Dap, Leds, embassy_time::Delay, Dap, Dap, Dap> {
         Self::new_with_leds(Leds())
     }
-    fn new_with_leds<LEDS: DapLeds>(
+    pub fn new_with_leds<LEDS: DapLeds>(
         leds: LEDS,
     ) -> dap_rs::dap::Dap<'static, Dap, LEDS, embassy_time::Delay, Dap, Dap, Dap> {
         let inner = Dap {
