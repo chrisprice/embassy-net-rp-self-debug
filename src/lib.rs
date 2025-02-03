@@ -1,6 +1,7 @@
 #![no_std]
 
 mod dap;
+mod flash_algo;
 mod flash_new;
 mod spinlock;
 
