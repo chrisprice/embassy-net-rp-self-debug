@@ -1,13 +1,14 @@
 #![no_std]
 
 mod dap;
+mod flash_new;
+mod spinlock;
 
-use core::cell::RefCell;
+use core::{future::Future, ops::DerefMut};
 
 use dap::Dap;
 use dap_rs::dap::{DapLeds, DapVersion, HostStatus};
 use defmt::{debug, trace, unwrap, warn};
-use embassy_boot_rp::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_executor::{Executor, SpawnToken, Spawner};
 use embassy_net::{driver::Driver, tcp::TcpSocket};
 use embassy_rp::{
@@ -23,16 +24,8 @@ use embassy_sync::{
 };
 use embassy_time::Duration;
 use embedded_io_async::Write;
+use flash_new::{with_flash, FlashMutex};
 use static_cell::StaticCell;
-
-#[cfg(feature = "flash-size-2048k")]
-const FLASH_SIZE: usize = 2048 * 1024;
-type FlashLock = OnceLock<
-    embassy_sync::blocking_mutex::Mutex<
-        NoopRawMutex,
-        RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>,
-    >,
->;
 
 const PACKET_SIZE: usize = dap_rs::usb::DAP2_PACKET_SIZE as usize;
 type DebugSocketLock = OnceLock<Mutex<NoopRawMutex, TcpSocket<'static>>>;
@@ -40,7 +33,6 @@ type DebugSocketLock = OnceLock<Mutex<NoopRawMutex, TcpSocket<'static>>>;
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 static DEBUG_SOCKET: DebugSocketLock = OnceLock::new();
-static FLASH: FlashLock = OnceLock::new();
 
 struct Alice(&'static Signal<CriticalSectionRawMutex, ()>);
 
@@ -56,36 +48,11 @@ impl DapLeds for Alice {
 }
 
 #[embassy_executor::task]
-async fn mark_successful_boot_task(
-    signal: &'static Signal<CriticalSectionRawMutex, ()>,
-    flash: &'static embassy_sync::blocking_mutex::Mutex<
-        NoopRawMutex,
-        RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>,
-    >,
-) {
-    signal.wait().await;
-    debug!("Marking successful boot");
-
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(flash, flash);
-    let mut aligned = embassy_boot_rp::AlignedBuffer([0; 0]);
-    let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
-
-    match unwrap!(updater.get_state()) {
-        embassy_boot_rp::State::Swap => {
-            unwrap!(updater.mark_booted());
-        }
-        _ => {}
-    }
-}
-
-#[embassy_executor::task]
 async fn debug_listen_task(
     sucessful_boot_signal: &'static Signal<CriticalSectionRawMutex, ()>,
     port: u16,
     timeout: Duration,
 ) -> ! {
-    let mut dap = Dap::new_with_leds(Alice(sucessful_boot_signal));
-
     let mut socket = DEBUG_SOCKET.get().await.lock().await;
     socket.set_timeout(Some(timeout));
 
@@ -99,40 +66,53 @@ async fn debug_listen_task(
 
         debug!("Connected");
 
-        loop {
-            let mut request_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
+        with_flash(
+            |_, socket| async {
+                let mut dap = Dap::new_with_leds(Alice(sucessful_boot_signal));
 
-            trace!("Waiting for request");
+                loop {
+                    let mut request_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
 
-            let n = match socket.read(&mut request_buffer).await {
-                Ok(0) => {
-                    debug!("read EOF");
-                    break;
+                    trace!("Waiting for request");
+
+                    let n = match socket.read(&mut request_buffer).await {
+                        Ok(0) => {
+                            debug!("Read EOF");
+                            break;
+                        }
+                        Ok(n) => n,
+                        Err(e) => {
+                            warn!("Read error: {:?}", e);
+                            break;
+                        }
+                    };
+
+                    trace!("Received {} bytes", n);
+
+                    let mut response_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
+                    let n = dap.process_command(
+                        &request_buffer[..n],
+                        &mut response_buffer,
+                        DapVersion::V2,
+                    );
+
+                    trace!("Responding with {} bytes", n);
+
+                    match socket.write_all(&response_buffer[..n]).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!("Write error: {:?}", e);
+                            break;
+                        }
+                    };
                 }
-                Ok(n) => n,
-                Err(e) => {
-                    warn!("read error: {:?}", e);
-                    break;
-                }
-            };
 
-            trace!("Received {} bytes", n);
+                dap.suspend();
+            },
+            socket.deref_mut(),
+        )
+        .await;
 
-            let mut response_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
-            let n = dap.process_command(&request_buffer[..n], &mut response_buffer, DapVersion::V2);
-
-            trace!("Responding with {} bytes", n);
-
-            match socket.write_all(&response_buffer[..n]).await {
-                Ok(()) => {}
-                Err(e) => {
-                    warn!("write error: {:?}", e);
-                    break;
-                }
-            };
-        }
-
-        dap.suspend();
         socket.abort();
 
         if let embassy_net::tcp::State::CloseWait = socket.state() {
@@ -163,7 +143,7 @@ impl Carol {
         unwrap!(self
             .0
             .init(Mutex::new(socket))
-            .map_err(|_| "socket already initialized"));
+            .map_err(|_| "Socket already initialized"));
     }
 }
 
@@ -173,7 +153,7 @@ pub struct Bob {
 impl Bob {
     pub async fn new<ARGS, S>(
         core1: CORE1,
-        flash: Flash<'static, FLASH, Async, FLASH_SIZE>,
+        flash: Flash<'static, FLASH, Async, { flash_new::FLASH_SIZE }>,
         init_args: ARGS,
         net_init: impl FnOnce(ARGS, Carol) -> SpawnToken<S> + Send + 'static,
         port: u16,
@@ -184,17 +164,14 @@ impl Bob {
     {
         // TODO: install flash algo trampolines
 
-        let flash = embassy_sync::blocking_mutex::Mutex::new(RefCell::new(flash));
-        unwrap!(FLASH.init(flash).map_err(|_| "flash already initialised"));
-
-        let flash = FLASH.try_get().unwrap();
+        flash_new::init_flash(flash);
 
         static SIGNAL: StaticCell<Signal<CriticalSectionRawMutex, ()>> = StaticCell::new();
         let successful_boot_signal = &*SIGNAL.init(Signal::new());
 
         let spawner = Spawner::for_current_executor().await;
 
-        spawner.must_spawn(mark_successful_boot_task(successful_boot_signal, flash));
+        spawner.must_spawn(flash_new::mark_successful_boot_task(successful_boot_signal));
 
         spawn_core1(
             core1,
@@ -211,12 +188,7 @@ impl Bob {
             phantom: core::marker::PhantomData,
         }
     }
-    pub fn flash(
-        &self,
-    ) -> &'static embassy_sync::blocking_mutex::Mutex<
-        NoopRawMutex,
-        RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>,
-    > {
-        FLASH.try_get().unwrap()
+    pub async fn with_flash<A, F: Future<Output = R>, R>(&self, func: impl FnOnce(&FlashMutex, A) -> F, args: A) -> R {
+        flash_new::with_flash(func, args).await
     }
 }
