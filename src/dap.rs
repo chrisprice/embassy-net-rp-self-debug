@@ -3,7 +3,7 @@ use embassy_rp::pac::common::{Reg, RW};
 use embassy_rp::pac::syscfg::regs::Dbgforce;
 
 use dap_rs::{
-    dap::{self, DapLeds},
+    dap::DapLeds,
     swd::Swd,
     swj::{self, Dependencies},
     swo::Swo,
@@ -16,9 +16,6 @@ pub struct Dap {
 }
 
 impl Dap {
-    pub fn new() -> dap_rs::dap::Dap<'static, Dap, Leds, embassy_time::Delay, Dap, Dap, Dap> {
-        Self::new_with_leds(Leds())
-    }
     pub fn new_with_leds<LEDS: DapLeds>(
         leds: LEDS,
     ) -> dap_rs::dap::Dap<'static, Dap, LEDS, embassy_time::Delay, Dap, Dap, Dap> {
@@ -264,16 +261,5 @@ impl Swo for Dap {
 
     fn status(&mut self) -> dap_rs::swo::SwoStatus {
         unimplemented!("Swo::status not available")
-    }
-}
-
-pub struct Leds();
-
-impl DapLeds for Leds {
-    fn react_to_host_status(&mut self, host_status: dap::HostStatus) {
-        match host_status {
-            dap::HostStatus::Connected(_) => trace!("Connected"),
-            dap::HostStatus::Running(_) => trace!("Running"),
-        }
     }
 }
