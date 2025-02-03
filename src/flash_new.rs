@@ -4,20 +4,16 @@ use core::{
     sync::atomic::{fence, Ordering},
 };
 
-use defmt::{debug, trace, unwrap, warn, Format};
-use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
+use defmt::{trace, warn, Format};
+use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
 use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_rp::{
-    flash::{Async, Flash, WRITE_SIZE},
+    flash::{Async, WRITE_SIZE},
     peripherals::FLASH,
 };
 use embassy_sync::{
-    blocking_mutex::{
-        raw::{CriticalSectionRawMutex, NoopRawMutex},
-        Mutex,
-    },
+    blocking_mutex::{raw::NoopRawMutex, Mutex},
     once_lock::OnceLock,
-    signal::Signal,
 };
 
 use crate::spinlock::Spinlock;
@@ -25,7 +21,6 @@ use crate::spinlock::Spinlock;
 #[cfg(feature = "flash-size-2048k")]
 pub const FLASH_SIZE: usize = 2048 * 1024;
 
-pub type FlashMutex = Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>;
 /// This is a cross-core spinlock designed to prevent a deadlock, whereby both cores succeed
 /// in simultaneously pausing each other.
 ///
@@ -44,60 +39,80 @@ pub type FlashMutex = Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, F
 /// debugging (i.e. the debugger would deadlock on every critical section).
 pub type FlashSpinlock = Spinlock<30>;
 
-/// Guard access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
-pub async fn with_flash<A, F: Future<Output = R>, R>(
-    f: impl FnOnce(&FlashMutex, A) -> F,
-    args: A,
-) -> R {
-    let flash = FLASH.try_get().expect("FLASH not initialized");
-    let flash_spinlock = loop {
+/// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
+pub async fn with_spinlock<A, F: Future<Output = R>, R>(f: impl FnOnce(A) -> F, args: A) -> R {
+    let spinlock = loop {
         if let Some(spinlock) = FlashSpinlock::try_claim() {
             break spinlock;
         }
     };
     // Ensure the spinklock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
-    let result = f(flash, args).await;
+    let result = f(args).await;
     // Ensure the spinklock is released after calling the flash operation
     fence(Ordering::SeqCst);
-    drop(flash_spinlock);
+    drop(spinlock);
     result
 }
 
-static FLASH: OnceLock<FlashMutex> = OnceLock::new();
-
-pub fn init_flash(flash: Flash<'static, FLASH, Async, FLASH_SIZE>) {
-    let flash = embassy_sync::blocking_mutex::Mutex::new(RefCell::new(flash));
-    unwrap!(FLASH
-        .init(flash)
-        .map_err(|_| "FLASH already initialised"));
-}
-
-pub fn firmware_updater<'a>(
-    buffer: &'a mut AlignedBuffer<WRITE_SIZE>,
-) -> BlockingFirmwareUpdater<
+pub type Flash = embassy_rp::flash::Flash<'static, FLASH, Async, FLASH_SIZE>;
+pub type FlashMutex = Mutex<NoopRawMutex, RefCell<Flash>>;
+pub type BlockingFirmwareUpdater<'a> = embassy_boot_rp::BlockingFirmwareUpdater<
     'a,
-    BlockingPartition<'static, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
-    BlockingPartition<'static, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
-> {
-    let flash = FLASH.try_get().expect("FLASH not initialized");
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(flash, flash);
-    BlockingFirmwareUpdater::new(config, &mut buffer.0)
+    BlockingPartition<'static, NoopRawMutex, Flash>,
+    BlockingPartition<'static, NoopRawMutex, Flash>,
+>;
+
+static FLASH_NEW: OnceLock<FlashNew> = OnceLock::new();
+
+pub struct FlashNew {
+    flash: FlashMutex,
 }
 
-#[embassy_executor::task]
-pub async fn mark_successful_boot_task(signal: &'static Signal<CriticalSectionRawMutex, ()>) {
-    signal.wait().await;
-    debug!("Marking successful boot");
+impl FlashNew {
+    pub fn new(
+        flash: Flash,
+    ) -> Result<&'static Self, Flash> {
+        let instance = Self {
+            flash: Mutex::new(RefCell::new(flash)),
+        };
+        FLASH_NEW
+            .init(instance)
+            .map_err(|instance| instance.flash.into_inner().into_inner())
+            .map(|_| FLASH_NEW.try_get().unwrap())
+    }
 
-    let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-    let mut updater = firmware_updater(&mut state_buffer);
+    pub async fn with_flash<A, F: Future<Output = R>, R>(
+        &self,
+        func: impl FnOnce(&FlashMutex, A) -> F,
+        args: A,
+    ) -> R {
+        let flash = &self.flash;
+        with_spinlock(|_| func(flash, args), ()).await
+    }
 
-    match unwrap!(updater.get_state()) {
-        embassy_boot_rp::State::Swap => {
-            unwrap!(updater.mark_booted());
-        }
-        _ => {}
+    fn firmware_updater<'a>(
+        &'static self,
+        buffer: &'a mut AlignedBuffer<WRITE_SIZE>,
+    ) -> BlockingFirmwareUpdater<'a> {
+        BlockingFirmwareUpdater::new(
+            FirmwareUpdaterConfig::from_linkerfile_blocking(&self.flash, &self.flash),
+            &mut buffer.0,
+        )
+    }
+
+    pub async fn with_firmware_updater<'a, A, F: Future<Output = R>, R>(
+        &'static self,
+        buffer: &'a mut AlignedBuffer<WRITE_SIZE>,
+        func: impl FnOnce(BlockingFirmwareUpdater<'a>, A) -> F,
+        args: A,
+    ) -> R {
+        let firmware_updater = self.firmware_updater(buffer);
+        with_spinlock(
+            |_| { func(firmware_updater, args) },
+            (),
+        )
+        .await
     }
 }
 
@@ -135,11 +150,15 @@ extern "C" fn uninit(operation: usize, _: usize, _: usize) -> usize {
         return 1;
     };
     trace!("Uninit: {:?}", operation);
+    let Some(flash_new) = FLASH_NEW.try_get() else {
+        warn!("Flash not initialized");
+        return 2;
+    };
     match operation {
         Operation::Program => {
             trace!("Marking updated");
             let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-            let mut updater = firmware_updater(&mut state_buffer);
+            let mut updater = flash_new.firmware_updater(&mut state_buffer);
             updater.mark_updated().map_or_else(
                 |e| {
                     warn!("Failed to mark updated: {:?}", e);
@@ -162,9 +181,12 @@ extern "C" fn program_page(address: usize, count: usize, buffer: usize) -> usize
         address,
         address + count as usize
     );
-
+    let Some(flash_new) = FLASH_NEW.try_get() else {
+        warn!("Flash not initialized");
+        return 2;
+    };
     let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-    let mut updater = firmware_updater(&mut state_buffer);
+    let mut updater = flash_new.firmware_updater(&mut state_buffer);
 
     updater.write_firmware(address, buffer).map_or_else(
         |e| {

@@ -24,7 +24,7 @@ use embassy_sync::{
 };
 use embassy_time::Duration;
 use embedded_io_async::Write;
-use flash_new::{with_flash, FlashMutex};
+use flash_new::{with_spinlock, FlashMutex, FlashNew};
 use static_cell::StaticCell;
 
 const PACKET_SIZE: usize = dap_rs::usb::DAP2_PACKET_SIZE as usize;
@@ -48,6 +48,29 @@ impl DapLeds for Alice {
 }
 
 #[embassy_executor::task]
+pub async fn mark_successful_boot_task(
+    flash_new: &'static FlashNew,
+    signal: &'static Signal<CriticalSectionRawMutex, ()>,
+) {
+    signal.wait().await;
+    debug!("Marking successful boot");
+
+    let mut state_buffer = embassy_boot_rp::AlignedBuffer([0; embassy_rp::flash::WRITE_SIZE]);
+    flash_new.with_firmware_updater(
+        &mut state_buffer,
+        |mut updater, _| async move {
+            match unwrap!(updater.get_state()) {
+                embassy_boot_rp::State::Swap => {
+                    unwrap!(updater.mark_booted());
+                }
+                _ => {}
+            }
+        },
+        (),
+    ).await;
+}
+
+#[embassy_executor::task]
 async fn debug_listen_task(
     sucessful_boot_signal: &'static Signal<CriticalSectionRawMutex, ()>,
     port: u16,
@@ -66,8 +89,8 @@ async fn debug_listen_task(
 
         debug!("Connected");
 
-        with_flash(
-            |_, socket| async {
+        with_spinlock(
+            |socket| async {
                 let mut dap = Dap::new_with_leds(Alice(sucessful_boot_signal));
 
                 loop {
@@ -148,7 +171,7 @@ impl Carol {
 }
 
 pub struct Bob {
-    phantom: core::marker::PhantomData<()>,
+    flash: &'static FlashNew,
 }
 impl Bob {
     pub async fn new<ARGS, S>(
@@ -164,14 +187,19 @@ impl Bob {
     {
         // TODO: install flash algo trampolines
 
-        flash_new::init_flash(flash);
+        let flash_new = FlashNew::new(flash)
+            .map_err(|_| "Flash already initialised")
+            .unwrap(); // TODO: handle error
 
         static SIGNAL: StaticCell<Signal<CriticalSectionRawMutex, ()>> = StaticCell::new();
         let successful_boot_signal = &*SIGNAL.init(Signal::new());
 
         let spawner = Spawner::for_current_executor().await;
 
-        spawner.must_spawn(flash_new::mark_successful_boot_task(successful_boot_signal));
+        spawner.must_spawn(mark_successful_boot_task(
+            flash_new,
+            successful_boot_signal,
+        ));
 
         spawn_core1(
             core1,
@@ -184,11 +212,14 @@ impl Bob {
                 });
             },
         );
-        Self {
-            phantom: core::marker::PhantomData,
-        }
+        Self { flash: flash_new }
     }
-    pub async fn with_flash<A, F: Future<Output = R>, R>(&self, func: impl FnOnce(&FlashMutex, A) -> F, args: A) -> R {
-        flash_new::with_flash(func, args).await
+
+    pub async fn with_flash<A, F: Future<Output = R>, R>(
+        &self,
+        func: impl FnOnce(&FlashMutex, A) -> F,
+        args: A,
+    ) -> R {
+        self.flash.with_flash(func, args).await
     }
 }
