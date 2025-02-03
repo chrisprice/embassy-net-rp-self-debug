@@ -2,7 +2,7 @@ use defmt::{trace, warn, Format};
 use embassy_boot_rp::AlignedBuffer;
 use embassy_rp::flash::WRITE_SIZE;
 
-use crate::flash_new::FlashNew;
+use crate::flash::guard::FlashGuard;
 
 /// Together with the 
 /// ```yaml
@@ -94,7 +94,7 @@ extern "C" fn uninit(operation: usize, _: usize, _: usize) -> usize {
         return 1;
     };
     trace!("Uninit: {:?}", operation);
-    let Some(flash_new) = FlashNew::try_get() else {
+    let Some(flash_new) = FlashGuard::try_get() else {
         warn!("Flash not initialized");
         return 2;
     };
@@ -130,7 +130,7 @@ extern "C" fn program_page(address: usize, count: usize, buffer: usize) -> usize
         address,
         address + count as usize
     );
-    let Some(flash_new) = FlashNew::try_get() else {
+    let Some(flash_new) = FlashGuard::try_get() else {
         warn!("Flash not initialized");
         return 2;
     };

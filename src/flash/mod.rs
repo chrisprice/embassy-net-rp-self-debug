@@ -1,7 +1,3 @@
-mod ipc;
-mod thunk;
-pub mod monitor;
-
-pub fn init() {
-    thunk::init();
-}
+pub(crate) mod algo;
+pub(crate) mod guard;
+mod spinlock;

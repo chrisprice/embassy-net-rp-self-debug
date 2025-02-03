@@ -1,20 +1,18 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
-
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
-use embassy_net_rp_self_debug::Carol;
+use embassy_net_rp_self_debug::debug::socket::DebugSocket;
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
-use embassy_rp::flash::{Async, Flash};
+use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, FLASH, PIN_23, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Sender};
 use embassy_time::Duration;
 use rand::RngCore;
@@ -34,14 +32,14 @@ struct NetInitArgs<'a> {
 }
 
 #[embassy_executor::task]
-async fn net_init(args: NetInitArgs<'static>, carol: Carol) -> ! {
+async fn net_init(args: NetInitArgs<'static>, debug_socket: DebugSocket) -> ! {
     args.sender.send(0).await;
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
 
-    let fw: &[u8; 230321] = include_bytes!("../network/43439A0.bin");
-    let clm: &[u8; 4752] = include_bytes!("../network/43439A0_clm.bin");
+    let fw: &[u8; 230321] = include_bytes!("./network/43439A0.bin");
+    let clm: &[u8; 4752] = include_bytes!("./network/43439A0_clm.bin");
 
     let (net_device, mut control, runner) =
         cyw43::new(state, Output::new(args.pin_23, Level::Low), args.spi, fw).await;
@@ -68,7 +66,7 @@ async fn net_init(args: NetInitArgs<'static>, carol: Carol) -> ! {
 
     spawner.must_spawn(net_task(stack));
 
-    carol.listen(stack);
+    debug_socket.listen(stack);
 
     control
         .join_wpa2("ssid", "passphrase")

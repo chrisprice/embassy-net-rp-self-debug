@@ -15,7 +15,7 @@ use embassy_sync::{
     once_lock::OnceLock,
 };
 
-use crate::spinlock::Spinlock;
+use crate::flash::spinlock::Spinlock;
 
 #[cfg(feature = "flash-size-2048k")]
 pub const FLASH_SIZE: usize = 2048 * 1024;
@@ -36,12 +36,12 @@ pub const FLASH_SIZE: usize = 2048 * 1024;
 ///
 /// We do not use a critical section for this as it would severely limit the usefulness of the
 /// debugging (i.e. the debugger would deadlock on every critical section).
-pub type FlashSpinlock = Spinlock<30>;
+pub type Spinlock30 = Spinlock<30>;
 
 /// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
 pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> F, args: A) -> R {
     let spinlock = loop {
-        if let Some(spinlock) = FlashSpinlock::try_claim() {
+        if let Some(spinlock) = Spinlock30::try_claim() {
             break spinlock;
         }
     };
@@ -57,7 +57,7 @@ pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> 
 /// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
 fn with_spinlock_blocking<A, R>(func: impl FnOnce(A) -> R, args: A) -> R {
     let spinlock = loop {
-        if let Some(spinlock) = FlashSpinlock::try_claim() {
+        if let Some(spinlock) = Spinlock30::try_claim() {
             break spinlock;
         }
     };
@@ -78,25 +78,25 @@ pub type BlockingFirmwareUpdater<'a> = embassy_boot_rp::BlockingFirmwareUpdater<
     BlockingPartition<'static, NoopRawMutex, Flash>,
 >;
 
-static FLASH_NEW: OnceLock<FlashNew> = OnceLock::new();
+static FLASH_GUARD: OnceLock<FlashGuard> = OnceLock::new();
 
-pub struct FlashNew {
+pub struct FlashGuard {
     flash: FlashMutex,
 }
 
-impl FlashNew {
+impl FlashGuard {
     pub fn try_get() -> Option<&'static Self> {
-        FLASH_NEW.try_get()
+        FLASH_GUARD.try_get()
     }
 
     pub fn new(flash: Flash) -> Result<&'static Self, Flash> {
         let instance = Self {
             flash: Mutex::new(RefCell::new(flash)),
         };
-        FLASH_NEW
+        FLASH_GUARD
             .init(instance)
             .map_err(|instance| instance.flash.into_inner().into_inner())
-            .map(|_| FLASH_NEW.try_get().unwrap())
+            .map(|_| FLASH_GUARD.try_get().unwrap())
     }
 
     pub async fn with_flash<A, F: Future<Output = R>, R>(
