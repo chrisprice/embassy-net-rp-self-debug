@@ -186,7 +186,7 @@ impl Bob {
     where
         ARGS: Send + 'static,
     {
-        // TODO: install flash algo trampolines
+        flash_algo::write_function_table();
 
         let flash_new = FlashNew::new(flash)
             .map_err(|_| "Flash already initialised")

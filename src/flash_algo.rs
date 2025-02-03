@@ -4,8 +4,61 @@ use embassy_rp::flash::WRITE_SIZE;
 
 use crate::flash_new::FlashNew;
 
-static ALGO_THUNK: [extern "C" fn(usize, usize, usize) -> usize; 4] =
+/// Together with the 
+/// ```yaml
+///  instructions: +kwF4PpMA+D6TAHg+kz/5wC1oEcAvQ==
+///  load_address: 0x20000004
+///  pc_init: 0x1
+///  pc_uninit: 0x5
+///  pc_program_page: 0x9
+///  pc_erase_sector: 0xd 
+/// ```
+/// The instructions decode as -
+/// ```asm
+/// ldr r4, [pc, #0x3e8]
+/// b #0x10
+/// ldr r4, [pc, #0x3e8]
+/// b #0x10
+/// ldr r4, [pc, #0x3e8]
+/// b #0x10
+/// ldr r4, [pc, #0x3e8]
+/// b #0x10
+/// push {lr}
+/// blx r4
+/// pop {pc}
+/// ```
+/// 
+/// ```
+/// const PROBE_RS_ARM_HEADER: [u32; 1] = [0xBE00BE00];
+/// let load_address = RESERVED_BASE_ADDRESS + core::mem::size_of(PROBE_RS_ARM_HEADER);
+/// assert_eq!(load_address, 0x20000004);
+/// const TABLE_SIZE: usize = core::mem::size_of(FUNCTION_TABLE);
+/// let lookup_delta = RESERVED_SIZE - core::mem::size_of(PROBE_RS_ARM_HEADER) - TABLE_SIZE;
+/// assert_eq!(lookup_delta, 0x3e8);
+/// ```
+static FUNCTION_TABLE: [extern "C" fn(usize, usize, usize) -> usize; 4] =
     [init, uninit, program_page, erase_sector];
+
+/// The base address of the RAM region reserved for the flash algorithm.
+/// Must align with the configuration of the probe-rs target.
+const RESERVED_BASE_ADDRESS: usize = 0x20000000;
+/// The base address of the RAM region reserved for the flash algorithm.
+/// Must align with the configuration of the probe-rs target.
+const RESERVED_SIZE: usize = 1024;
+
+pub fn write_function_table() {
+    let entry_size = size_of::<extern "C" fn(usize, usize, usize) -> usize>();
+    let table_size = entry_size * FUNCTION_TABLE.len();
+    // Place the function table at the end of the reserved RAM region
+    let base_address: usize = RESERVED_BASE_ADDRESS + RESERVED_SIZE - table_size;
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            FUNCTION_TABLE.as_ptr(),
+            base_address as *mut _,
+            FUNCTION_TABLE.len(),
+        );
+    }
+}
 
 #[derive(Format)]
 pub enum Operation {
