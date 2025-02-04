@@ -5,9 +5,10 @@ use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
 use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_rp::{
     flash::{Async, Flash, WRITE_SIZE},
-    peripherals::FLASH,
+    peripherals::{DMA_CH0, FLASH},
+    Peripherals,
 };
-use embassy_sync::blocking_mutex::{raw::NoopRawMutex, Mutex};
+use embassy_sync::blocking_mutex::{raw::NoopRawMutex, Mutex, NoopMutex};
 
 use super::spinlock::with_spinlock_blocking;
 
@@ -72,16 +73,28 @@ impl core::convert::TryFrom<usize> for Operation {
 }
 
 /// Flash algorithm methods using a const generic for reuse across flash sizes.
-/// These methods must be statically invoked (via the function table), therefore 
-/// we must store a pointer to the flash instance.
+/// These methods must be statically invoked (via the function table), therefore
+/// we steal the required peripherals when constructing the flash instance.
+/// To ensure that it is safe to do so we guard access to flash with the spinlock.
+/// To ensure we steal the right peripherals we construct the flash instance here.
 pub struct FlashAlgorithm<const FLASH_SIZE: usize> {}
 
 impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
     const TABLE_SIZE: usize = size_of::<[extern "C" fn(usize, usize, usize) -> usize; 4]>();
 
     pub fn new(
-        flash: &'static Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
-    ) -> Self {
+        flash: FLASH,
+        dma: DMA_CH0,
+    ) -> (
+        Self,
+        Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+    ) {
+        let flash = Flash::new(flash, dma);
+        let flash = NoopMutex::new(RefCell::new(flash));
+        (Self {}, flash)
+    }
+
+    pub fn install(self) {
         let function_table: [extern "C" fn(usize, usize, usize) -> usize; 4] = [
             Self::init,
             Self::uninit,
@@ -98,38 +111,30 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
                 function_table.len(),
             );
         }
-        // Place the flash pointer before the table
-        let flash_ptr = flash as *const _ as usize;
-        let flash_ptr_address = base_address - size_of::<usize>();
-        unsafe {
-            core::ptr::write(flash_ptr_address as *mut usize, flash_ptr);
-        }
-        Self {}
     }
 
-    fn flash() -> &'static Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>> {
-        let flash_ptr_address = RESERVED_BASE_ADDRESS + RESERVED_SIZE - Self::TABLE_SIZE - size_of::<usize>();
-        let flash_ptr = unsafe { core::ptr::read(flash_ptr_address as *const *const _) };
-        unsafe { &*(flash_ptr as *const _) }
-    }
-
-    fn with_firmware_updater<'a, R>(
-        buffer: &'a mut AlignedBuffer<WRITE_SIZE>,
-        func: impl FnOnce(
-            embassy_boot_rp::BlockingFirmwareUpdater<
-                BlockingPartition<'a, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
-                BlockingPartition<'a, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
+    fn with_firmware_updater<'buffer, R>(
+        buffer: &'buffer mut AlignedBuffer<WRITE_SIZE>,
+        func: impl for<'updater, 'mutex> FnOnce(
+            &'updater mut embassy_boot_rp::BlockingFirmwareUpdater<
+                BlockingPartition<'mutex, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
+                BlockingPartition<'mutex, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
             >,
         ) -> R,
     ) -> R {
         with_spinlock_blocking(
             |_| {
-                let flash = Self::flash();
-                let firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
-                    FirmwareUpdaterConfig::from_linkerfile_blocking(flash, flash),
+                let (flash, dma) = unsafe {
+                    let p = Peripherals::steal();
+                    (p.FLASH, p.DMA_CH0)
+                };
+                let flash = Flash::new(flash, dma);
+                let flash = NoopMutex::new(RefCell::new(flash));
+                let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
+                    FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash),
                     &mut buffer.0,
                 );
-                func(firmware_updater)
+                func(&mut firmware_updater)
             },
             (),
         )
@@ -154,7 +159,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
             Operation::Program => {
                 trace!("Marking updated");
                 let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-                Self::with_firmware_updater(&mut state_buffer, |mut updater| {
+                Self::with_firmware_updater(&mut state_buffer, |updater| {
                     updater.mark_updated().map_or_else(
                         |e| {
                             warn!("Failed to mark updated: {:?}", e);
@@ -179,7 +184,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
             address + count as usize
         );
         let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-        Self::with_firmware_updater(&mut state_buffer, |mut updater| {
+        Self::with_firmware_updater(&mut state_buffer, |updater| {
             updater.write_firmware(address, buffer).map_or_else(
                 |e| {
                     warn!("Failed to write firmware: {:?}", e);

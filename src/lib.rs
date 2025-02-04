@@ -1,6 +1,6 @@
 #![no_std]
 
-mod boot_success;
+pub mod boot_success;
 pub mod debug;
 mod flash;
 
@@ -15,55 +15,54 @@ use embassy_rp::{
     peripherals::{CORE1, DMA_CH0, FLASH},
 };
 use embassy_sync::{
-    blocking_mutex::{
-        raw::CriticalSectionRawMutex,
-        NoopMutex,
-    },
+    blocking_mutex::{raw::CriticalSectionRawMutex, NoopMutex},
     signal::Signal,
 };
 use flash::{
     algorithm::FlashAlgorithm,
-    spinlock::with_spinlock,
+    spinlock::{with_spinlock, with_spinlock_blocking},
 };
 use static_cell::StaticCell;
-
-#[cfg(feature = "flash-size-2048k")]
-pub const FLASH_SIZE: usize = 2048 * 1024;
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
-pub struct State<const FLASH_SIZE: usize> {
-    flash: NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+pub struct State {
     boot_success_signal: Signal<CriticalSectionRawMutex, ()>,
 }
 
-impl<const FLASH_SIZE: usize> State<FLASH_SIZE> {
-    pub fn new(flash: FLASH, dma: DMA_CH0) -> Self {
-        let flash = Flash::new(flash, dma);
-
+impl State {
+    pub fn new() -> Self {
         Self {
-            flash: NoopMutex::new(RefCell::new(flash)),
             boot_success_signal: Signal::new(),
         }
     }
 }
 
 pub struct OtaDebugger<const FLASH_SIZE: usize> {
-    state: &'static State<FLASH_SIZE>,
+    _state: &'static State,
+    flash: NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
 }
 impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
     pub async fn new(
-        state: &'static mut State<FLASH_SIZE>,
+        state: &'static mut State,
+        flash: FLASH,
+        dma: DMA_CH0,
         core1: CORE1,
         core1_init: impl FnOnce(Spawner, DebugSocket) + Send + 'static,
     ) -> (Self, BootSuccessMarker<FLASH_SIZE>) {
-        FlashAlgorithm::new(&state.flash);
+        let (flash_algorithm, flash) = FlashAlgorithm::new(flash, dma);
 
-        let spawner = Spawner::for_current_executor().await;
+        // By accepting the singleton CORE1 peripheral we're ensuring that this function isn't called twice.
+        // Therefore we're not going to overwrite any existing algorithm.
+        flash_algorithm.install();
 
-        let boot_success_signaler = BootSuccessSignaler::new(&state.boot_success_signal);
+        let instance = Self {
+            _state: state,
+            flash,
+        };
 
+        let boot_success_signaler = BootSuccessSignaler::new(&instance._state.boot_success_signal);
         spawn_core1(
             core1,
             unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
@@ -74,10 +73,9 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
                 });
             },
         );
-        (
-            Self { state },
-            BootSuccessMarker::new(&state.flash, &state.boot_success_signal),
-        )
+
+        let boot_success_marker = BootSuccessMarker::new(&instance._state.boot_success_signal);
+        (instance, boot_success_marker)
     }
 
     pub async fn with_flash<A, F: Future<Output = R>, R>(
@@ -85,6 +83,14 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
         func: impl FnOnce(&NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>, A) -> F,
         args: A,
     ) -> R {
-        with_spinlock(|()| func(&self.state.flash, args), ()).await
+        with_spinlock(|()| func(&self.flash, args), ()).await
+    }
+
+    pub fn with_flash_blocking<A, R>(
+        &self,
+        func: impl FnOnce(&NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>, A) -> R,
+        args: A,
+    ) -> R {
+        with_spinlock_blocking(|()| func(&self.flash, args), ())
     }
 }
