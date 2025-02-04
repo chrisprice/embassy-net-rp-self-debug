@@ -11,13 +11,13 @@ use static_cell::StaticCell;
 const PACKET_SIZE: usize = dap_rs::usb::DAP2_PACKET_SIZE as usize;
 
 pub struct DebugSocket {
-    boot_success_signaler: &'static BootSuccessSignaler,
+    boot_success_signaler: BootSuccessSignaler,
     port: u16,
     timeout: Option<Duration>,
 }
 
 impl DebugSocket {
-    pub fn new(boot_success_signaler: &'static BootSuccessSignaler) -> Self {
+    pub fn new(boot_success_signaler: BootSuccessSignaler) -> Self {
         Self {
             boot_success_signaler,
             port: 1234,
@@ -35,7 +35,7 @@ impl DebugSocket {
         self
     }
 
-    pub async fn listen<D: Driver>(&self, stack: &'static embassy_net::Stack<D>) -> ! {
+    pub async fn listen<D: Driver>(self, stack: &'static embassy_net::Stack<D>) -> ! {
         static SOCKET_RX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
         static SOCKET_TX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
         let rx_buffer = SOCKET_RX_BUFFER.init([0; PACKET_SIZE]);
@@ -43,7 +43,7 @@ impl DebugSocket {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(self.timeout);
 
-        let mut dap = Dap::new_with_leds(self.boot_success_signaler.dap_leds());
+        let mut dap = Dap::new_with_leds(self.boot_success_signaler);
 
         loop {
             debug!("Waiting for connection");

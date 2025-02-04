@@ -6,6 +6,7 @@ use cyw43_pio::PioSpi;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
 use embassy_net_rp_self_debug::debug::socket::DebugSocket;
+use embassy_net_rp_self_debug::State;
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
@@ -100,6 +101,10 @@ async fn main(_s: Spawner) -> ! {
     let pin_23 = p.PIN_23;
 
     const FLASH_SIZE: usize = 2048 * 1024;
+
+    static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE>> = StaticCell::new();
+    OTA State::new(p.FLASH, p.DMA_CH0);
+
     embassy_net_rp_self_debug::OtaDebugger::new::<FLASH_SIZE>(p.CORE1, p.FLASH, p.DMA_CH0, |spawner, debug_socket| {
         spawner.must_spawn(net_init(spi, pin_23, debug_socket));
     });
