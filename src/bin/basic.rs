@@ -12,8 +12,6 @@ use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::{Channel, Sender};
 use embassy_time::Duration;
 use rand::RngCore;
 use static_cell::StaticCell;
@@ -22,19 +20,8 @@ bind_interrupts!(struct Irqs0 {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-static NET_CONTROL_CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, usize, 1>> =
-    StaticCell::new();
-
-struct NetInitArgs<'a> {
-    spi: PioSpi<'a, PIO0, 0, DMA_CH0>,
-    pin_23: PIN_23,
-    sender: Sender<'a, CriticalSectionRawMutex, usize, 1>,
-}
-
 #[embassy_executor::task]
-async fn net_init(args: NetInitArgs<'static>, debug_socket: DebugSocket) -> ! {
-    args.sender.send(0).await;
-
+async fn net_init(spi: PioSpi<'static, PIO0, 0, DMA_CH0>, pwr: PIN_23, mut debug_socket: DebugSocket) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
 
@@ -42,7 +29,7 @@ async fn net_init(args: NetInitArgs<'static>, debug_socket: DebugSocket) -> ! {
     let clm: &[u8; 4752] = include_bytes!("./network/43439A0_clm.bin");
 
     let (net_device, mut control, runner) =
-        cyw43::new(state, Output::new(args.pin_23, Level::Low), args.spi, fw).await;
+        cyw43::new(state, Output::new(pwr, Level::Low), spi, fw).await;
 
     let spawner = Spawner::for_current_executor().await;
     spawner.must_spawn(wifi_task(runner));
@@ -66,7 +53,11 @@ async fn net_init(args: NetInitArgs<'static>, debug_socket: DebugSocket) -> ! {
 
     spawner.must_spawn(net_task(stack));
 
-    debug_socket.listen(stack);
+    debug_socket
+        .port(1234)
+        .timeout(Duration::from_secs(30));
+    
+    spawner.must_spawn(debug_task(stack, debug_socket));
 
     control
         .join_wpa2("ssid", "passphrase")
@@ -74,10 +65,6 @@ async fn net_init(args: NetInitArgs<'static>, debug_socket: DebugSocket) -> ! {
         .map_err(|_| "failed to join network");
 
     stack.wait_config_up().await;
-
-    loop {
-        nop();
-    }
 }
 
 #[embassy_executor::task]
@@ -92,11 +79,13 @@ async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
     stack.run().await
 }
 
+#[embassy_executor::task]
+async fn debug_task(stack: &'static Stack<cyw43::NetDriver<'static>>, debug_socket: DebugSocket) -> ! {
+    debug_socket.listen(stack).await
+}
+
 #[embassy_executor::main]
 async fn main(_s: Spawner) -> ! {
-    let net_control_channel: &mut Channel<CriticalSectionRawMutex, usize, 1> =
-        NET_CONTROL_CHANNEL.init(Channel::new());
-
     let p = embassy_rp::init(Default::default());
 
     let mut pio = Pio::new(p.PIO0, Irqs0);
@@ -109,17 +98,13 @@ async fn main(_s: Spawner) -> ! {
         p.PIN_29,
         p.DMA_CH0,
     );
-    let net_init_args = NetInitArgs {
-        spi,
-        pin_23: p.PIN_23,
-        sender: net_control_channel.sender(),
-    };
+    let pin_23 = p.PIN_23;
 
     let flash = Flash::new(p.FLASH, p.DMA_CH1);
 
-    const PORT: u16 = 1234;
-    const TIMEOUT: Duration = Duration::from_secs(30);
-    embassy_net_rp_self_debug::Bob::new(p.CORE1, flash, net_init_args, net_init, PORT, TIMEOUT);
+    embassy_net_rp_self_debug::OtaDebugger::new(p.CORE1, flash, |spawner, debug_socket| {
+        spawner.must_spawn(net_init(spi, pin_23, debug_socket));
+    });
 
     loop {
         nop();

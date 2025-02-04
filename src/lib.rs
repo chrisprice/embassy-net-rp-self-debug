@@ -7,35 +7,28 @@ mod flash;
 use core::future::Future;
 
 use boot_success::{mark_booted_task, BootSuccessSignaler};
-use debug::socket::{listen_task, DebugSocket};
-use embassy_executor::{Executor, SpawnToken, Spawner};
+use debug::socket::DebugSocket;
+use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
     flash::{Async, Flash},
     multicore::{spawn_core1, Stack},
     peripherals::{CORE1, FLASH},
 };
-use embassy_time::Duration;
 use flash::guard::{FlashGuard, FlashMutex, FLASH_SIZE};
 use static_cell::StaticCell;
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
-pub struct Bob {
+pub struct OtaDebugger {
     flash: &'static FlashGuard,
 }
-impl Bob {
-    pub async fn new<ARGS, S>(
+impl OtaDebugger {
+    pub async fn new(
         core1: CORE1,
         flash: Flash<'static, FLASH, Async, { FLASH_SIZE }>,
-        init_args: ARGS,
-        net_init: impl FnOnce(ARGS, DebugSocket) -> SpawnToken<S> + Send + 'static,
-        port: u16,
-        timeout: Duration,
-    ) -> Self
-    where
-        ARGS: Send + 'static,
-    {
+        core1_init: impl FnOnce(Spawner, DebugSocket) + Send + 'static,
+    ) -> Self {
         flash::algo::write_function_table();
 
         let flash_new = FlashGuard::new(flash)
@@ -54,8 +47,7 @@ impl Bob {
             move || {
                 let executor1 = EXECUTOR1.init(Executor::new());
                 executor1.run(|spawner| {
-                    spawner.must_spawn(net_init(init_args, DebugSocket::new()));
-                    spawner.must_spawn(listen_task(boot_success_signaler, port, timeout))
+                    core1_init(spawner, DebugSocket::new(boot_success_signaler));
                 });
             },
         );
