@@ -94,7 +94,7 @@ async fn debug_task(
 
 #[embassy_executor::task]
 async fn boot_success_task(boot_success_marker: BootSuccessMarker<FLASH_SIZE>, ota_debugger: &'static OtaDebugger<FLASH_SIZE>) {
-    boot_success_marker.run(ota_debugger).await;
+    boot_success_marker.run(ota_debugger).await
 }
 
 #[embassy_executor::main]
@@ -117,12 +117,15 @@ async fn main(_s: Spawner) -> ! {
     static OTA_DEBUGGER_STATE: StaticCell<State> = StaticCell::new();
     let state = OTA_DEBUGGER_STATE.init(State::new());
 
-    let (ota_debugger, boot_success_marker) = embassy_net_rp_self_debug::OtaDebugger::<FLASH_SIZE>::new(
+    let (ota_debugger, boot_success_marker) = OtaDebugger::<FLASH_SIZE>::new(
         state,
         p.FLASH,
         p.DMA_CH0,
         p.CORE1,
         |spawner, debug_socket| {
+            // TODO: Ensure debug_socket is !Send/!Sync
+            // Spawn the network initialization task on core1 so that it can continue
+            // running during debugging of core0.
             spawner.must_spawn(net_init(spi, pin_23, debug_socket));
         },
     ).await;

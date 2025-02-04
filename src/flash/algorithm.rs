@@ -124,6 +124,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
     ) -> R {
         with_spinlock_blocking(
             |_| {
+                // TODO: add types (use alias)
                 let (flash, dma) = unsafe {
                     let p = Peripherals::steal();
                     (p.FLASH, p.DMA_CH0)

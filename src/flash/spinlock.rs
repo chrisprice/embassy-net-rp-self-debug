@@ -31,10 +31,10 @@ pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> 
             break spinlock;
         }
     };
-    // Ensure the spinklock is acquired before calling the flash operation
+    // Ensure the spinlock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
     let result = func(args).await;
-    // Ensure the spinklock is released after calling the flash operation
+    // Ensure the spinlock is released after calling the flash operation
     fence(Ordering::SeqCst);
     drop(spinlock);
     result
@@ -47,10 +47,10 @@ pub fn with_spinlock_blocking<A, R>(func: impl FnOnce(A) -> R, args: A) -> R {
             break spinlock;
         }
     };
-    // Ensure the spinklock is acquired before calling the flash operation
+    // Ensure the spinlock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
     let result = func(args);
-    // Ensure the spinklock is released after calling the flash operation
+    // Ensure the spinlock is released after calling the flash operation
     fence(Ordering::SeqCst);
     drop(spinlock);
     result

@@ -46,6 +46,7 @@ impl<const FLASH_SIZE: usize> BootSuccessMarker<FLASH_SIZE> {
                         &mut buffer.0,
                     );
 
+                    // TODO: Confirm if we need this check - is it always safe to just mark_booted?
                     match unwrap!(firmware_updater.get_state()) {
                         embassy_boot_rp::State::Swap => {
                             unwrap!(firmware_updater.mark_booted());

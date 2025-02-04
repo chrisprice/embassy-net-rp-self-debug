@@ -39,6 +39,8 @@ impl State {
     }
 }
 
+// TODO: check type visibility
+
 pub struct OtaDebugger<const FLASH_SIZE: usize> {
     _state: &'static State,
     flash: NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
@@ -86,6 +88,7 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
         with_spinlock(|()| func(&self.flash, args), ()).await
     }
 
+    // TODO: Remove args, only async needs that (due to lack of async closure)
     pub fn with_flash_blocking<A, R>(
         &self,
         func: impl FnOnce(&NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>, A) -> R,
