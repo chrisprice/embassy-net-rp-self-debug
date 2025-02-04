@@ -1,6 +1,6 @@
 use crate::boot_success::BootSuccessSignaler;
 use crate::debug::dap::Dap;
-use crate::flash::guard::with_spinlock;
+use crate::flash::spinlock::with_spinlock;
 use dap_rs::dap::DapVersion;
 use defmt::{debug, trace, warn};
 use embassy_net::{driver::Driver, tcp::TcpSocket};

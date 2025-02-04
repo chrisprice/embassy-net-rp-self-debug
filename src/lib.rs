@@ -10,12 +10,15 @@ use boot_success::{mark_booted_task, BootSuccessSignaler};
 use debug::socket::DebugSocket;
 use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
-    flash::{Async, Flash},
+    flash::Flash,
     multicore::{spawn_core1, Stack},
-    peripherals::{CORE1, FLASH},
+    peripherals::{CORE1, DMA_CH0, FLASH},
 };
-use flash::guard::{FlashGuard, FlashMutex, FLASH_SIZE};
+use flash::guard::{FlashGuard, FlashMutex};
 use static_cell::StaticCell;
+
+#[cfg(feature = "flash-size-2048k")]
+pub const FLASH_SIZE: usize = 2048 * 1024;
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
@@ -24,12 +27,15 @@ pub struct OtaDebugger {
     flash: &'static FlashGuard,
 }
 impl OtaDebugger {
-    pub async fn new(
+    pub async fn new<const FLASH_SIZE: usize>(
         core1: CORE1,
-        flash: Flash<'static, FLASH, Async, { FLASH_SIZE }>,
+        flash: FLASH,
+        dma: DMA_CH0,
         core1_init: impl FnOnce(Spawner, DebugSocket) + Send + 'static,
     ) -> Self {
         flash::algo::write_function_table();
+
+        let flash = Flash::new(flash, dma);
 
         let flash_new = FlashGuard::new(flash)
             .map_err(|_| "Flash already initialised")

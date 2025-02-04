@@ -8,9 +8,8 @@ use embassy_net::{Config, DhcpConfig, Stack, StackResources};
 use embassy_net_rp_self_debug::debug::socket::DebugSocket;
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
-use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIO0};
+use embassy_rp::peripherals::{DMA_CH1, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::Duration;
 use rand::RngCore;
@@ -21,7 +20,7 @@ bind_interrupts!(struct Irqs0 {
 });
 
 #[embassy_executor::task]
-async fn net_init(spi: PioSpi<'static, PIO0, 0, DMA_CH0>, pwr: PIN_23, mut debug_socket: DebugSocket) {
+async fn net_init(spi: PioSpi<'static, PIO0, 0, DMA_CH1>, pwr: PIN_23, mut debug_socket: DebugSocket) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
 
@@ -69,7 +68,7 @@ async fn net_init(spi: PioSpi<'static, PIO0, 0, DMA_CH0>, pwr: PIN_23, mut debug
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>,
+    runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH1>>,
 ) -> ! {
     runner.run().await
 }
@@ -96,13 +95,12 @@ async fn main(_s: Spawner) -> ! {
         Output::new(p.PIN_25, Level::High),
         p.PIN_24,
         p.PIN_29,
-        p.DMA_CH0,
+        p.DMA_CH1,
     );
     let pin_23 = p.PIN_23;
 
-    let flash = Flash::new(p.FLASH, p.DMA_CH1);
-
-    embassy_net_rp_self_debug::OtaDebugger::new(p.CORE1, flash, |spawner, debug_socket| {
+    const FLASH_SIZE: usize = 2048 * 1024;
+    embassy_net_rp_self_debug::OtaDebugger::new::<FLASH_SIZE>(p.CORE1, p.FLASH, p.DMA_CH0, |spawner, debug_socket| {
         spawner.must_spawn(net_init(spi, pin_23, debug_socket));
     });
 

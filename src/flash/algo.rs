@@ -1,17 +1,29 @@
+use core::cell::RefCell;
+
 use defmt::{trace, warn, Format};
-use embassy_boot_rp::AlignedBuffer;
-use embassy_rp::flash::WRITE_SIZE;
+use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
+use embassy_rp::{
+    flash::{Async, Flash, WRITE_SIZE},
+    peripherals::FLASH,
+    Peripherals,
+};
+use embassy_sync::{
+    blocking_mutex::{raw::NoopRawMutex, Mutex},
+    once_lock::OnceLock,
+};
 
-use crate::flash::guard::FlashGuard;
+use crate::FLASH_SIZE;
 
-/// Together with the 
+use super::{guard::BlockingFirmwareUpdater, spinlock::with_spinlock_blocking};
+
+/// Together with the
 /// ```yaml
 ///  instructions: +kwF4PpMA+D6TAHg+kz/5wC1oEcAvQ==
 ///  load_address: 0x20000004
 ///  pc_init: 0x1
 ///  pc_uninit: 0x5
 ///  pc_program_page: 0x9
-///  pc_erase_sector: 0xd 
+///  pc_erase_sector: 0xd
 /// ```
 /// The instructions decode as -
 /// ```asm
@@ -27,7 +39,7 @@ use crate::flash::guard::FlashGuard;
 /// blx r4
 /// pop {pc}
 /// ```
-/// 
+///
 /// ```
 /// const PROBE_RS_ARM_HEADER: [u32; 1] = [0xBE00BE00];
 /// let load_address = RESERVED_BASE_ADDRESS + core::mem::size_of(PROBE_RS_ARM_HEADER);
@@ -58,6 +70,35 @@ pub fn write_function_table() {
             FUNCTION_TABLE.len(),
         );
     }
+}
+
+fn with_firmware_updater<'a, R>(
+    buffer: &'a mut AlignedBuffer<WRITE_SIZE>,
+    func: impl FnOnce(BlockingFirmwareUpdater<'a>) -> R,
+) -> R {
+    with_spinlock_blocking(
+        |_| {
+            static FLASH: OnceLock<
+                Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+            > = OnceLock::new();
+            let flash = FLASH.get_or_init(|| {
+                // SAFETY: Non-stolen flash access is guarded by the spinlock
+                // SAFETY: OtaDebugger explicitly requires DMA0 for flash
+                let (flash, dma) = unsafe {
+                    let p = Peripherals::steal();
+                    (p.FLASH, p.DMA_CH0)
+                };
+                let flash: Flash<'_, _, _, FLASH_SIZE> = Flash::new(flash, dma);
+                Mutex::<NoopRawMutex, _>::new(RefCell::new(flash))
+            });
+            let firmware_updater = BlockingFirmwareUpdater::new(
+                FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash),
+                &mut buffer.0,
+            );
+            func(firmware_updater)
+        },
+        (),
+    )
 }
 
 #[derive(Format)]
@@ -94,27 +135,19 @@ extern "C" fn uninit(operation: usize, _: usize, _: usize) -> usize {
         return 1;
     };
     trace!("Uninit: {:?}", operation);
-    let Some(flash_new) = FlashGuard::try_get() else {
-        warn!("Flash not initialized");
-        return 2;
-    };
     match operation {
         Operation::Program => {
             trace!("Marking updated");
             let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-            flash_new.with_firmware_updater(
-                &mut state_buffer,
-                |mut updater, _| {
-                    updater.mark_updated().map_or_else(
-                        |e| {
-                            warn!("Failed to mark updated: {:?}", e);
-                            1
-                        },
-                        |_| 0,
-                    )
-                },
-                (),
-            )
+            with_firmware_updater(&mut state_buffer, |mut updater| {
+                updater.mark_updated().map_or_else(
+                    |e| {
+                        warn!("Failed to mark updated: {:?}", e);
+                        1
+                    },
+                    |_| 0,
+                )
+            })
         }
         _ => 0,
     }
@@ -130,28 +163,20 @@ extern "C" fn program_page(address: usize, count: usize, buffer: usize) -> usize
         address,
         address + count as usize
     );
-    let Some(flash_new) = FlashGuard::try_get() else {
-        warn!("Flash not initialized");
-        return 2;
-    };
     let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-    flash_new.with_firmware_updater(
-        &mut state_buffer,
-        |mut updater, _| {
-            updater.write_firmware(address, buffer).map_or_else(
-                |e| {
-                    warn!("Failed to write firmware: {:?}", e);
-                    1
-                },
-                |_| 0,
-            )
-        },
-        (),
-    )
+    with_firmware_updater(&mut state_buffer, |mut updater| {
+        updater.write_firmware(address, buffer).map_or_else(
+            |e| {
+                warn!("Failed to write firmware: {:?}", e);
+                1
+            },
+            |_| 0,
+        )
+    })
 }
 
 extern "C" fn erase_sector(address: usize, _: usize, _: usize) -> usize {
     trace!("Erasing sector at {:#x}", address);
-    // erasing is performed as part of proram_page
+    // erasing is performed as part of program_page
     0
 }
