@@ -13,16 +13,21 @@ use embassy_sync::blocking_mutex::{
 };
 use embassy_sync::mutex::Mutex;
 
-/// Together with the
+/// The pertinent parts of the probe-rs config are included below,
+/// the associated code statically asserts the derivation of the
+/// various magic numbers contained within.
+///
 /// ```yaml
 ///  instructions: +kwF4PpMA+D6TAHg+kz/5wC1oEcAvQ==
 ///  load_address: 0x20000004
+///  stack_size: 512
 ///  pc_init: 0x1
 ///  pc_uninit: 0x5
 ///  pc_program_page: 0x9
 ///  pc_erase_sector: 0xd
 /// ```
-/// The instructions decode as -
+///
+/// `instructions` is a base64 encoding of the following ARM assembly -
 /// ```asm
 /// ldr r4, [pc, #0x3e8]
 /// b #0x10
@@ -36,23 +41,49 @@ use embassy_sync::mutex::Mutex;
 /// blx r4
 /// pop {pc}
 /// ```
-///
-/// ```
-/// const PROBE_RS_ARM_HEADER: [u32; 1] = [0xBE00BE00];
-/// let load_address = RESERVED_BASE_ADDRESS + core::mem::size_of(PROBE_RS_ARM_HEADER);
-/// assert_eq!(load_address, 0x20000004);
-/// const TABLE_SIZE: usize = core::mem::size_of(FUNCTION_TABLE);
-/// let lookup_delta = RESERVED_SIZE - core::mem::size_of(PROBE_RS_ARM_HEADER) - TABLE_SIZE;
-/// assert_eq!(lookup_delta, 0x3e8);
-/// assert!(false)
-/// ```
+const _: () = {
+    type ProbeRsArmHeader = [u32; 1];
+    // For reasons*, probe-rs prefixes the instructions with a header but loads
+    // the instructions at the load address. Therefore, we offset the load address
+    // by the size of the header to ensure the instructions will fit in the
+    // reserved space.
+    // * - When probe-rs jumps to the instructions, it initialises the link
+    // register with the address of the first header instruction. This allows the
+    // code to jump back to the header instructions after they are complete. The
+    // header instructions themselves cause the core to halt, which is detected by
+    // probe-rs, signalling that the flash algorithm has completed.
+    let _probe_rs_arm_header: ProbeRsArmHeader = [0xBE00BE00];
+    let probe_rs_arm_header_size = core::mem::size_of::<ProbeRsArmHeader>();
+    let load_address = RESERVED_BASE_ADDRESS + probe_rs_arm_header_size;
+    assert!(load_address == 0x20000004);
+    // Probe-rs will place the stack immediately after the instructions. To keep
+    // things simple, we choose the end of the reserved space to store the
+    // function table.
+    let stack_size = 512;
+    let thumb_instruction_size = 2;
+    let instruction_count = 11;
+    let instructions_size = thumb_instruction_size * instruction_count;
+    assert!(
+        probe_rs_arm_header_size + instructions_size + stack_size + TABLE_SIZE <= RESERVED_SIZE
+    );
+    // Additionally, the layout of the entry points is such that the relative
+    // offset to their respective function table entry is the same for all entry
+    // points (i.e. each entry point is 4 bytes apart). The kicker is that these
+    // are thumb-mode instructions, so "the value of the PC is the address of the
+    // current instruction plus 4 bytes."
+    let pc_relative_offset = 4;
+    let lookup_delta = RESERVED_SIZE - probe_rs_arm_header_size - TABLE_SIZE - pc_relative_offset;
+    assert!(lookup_delta == 0x3e8);
+};
 
 /// The base address of the RAM region reserved for the flash algorithm.
-/// Must align with the configuration of the probe-rs target.
 const RESERVED_BASE_ADDRESS: usize = 0x20000000;
-/// The base address of the RAM region reserved for the flash algorithm.
-/// Must align with the configuration of the probe-rs target.
+/// The size of the RAM region reserved for the flash algorithm.
 const RESERVED_SIZE: usize = 1024;
+/// The size of the function table used to store the pointers.
+const TABLE_SIZE: usize = size_of::<[extern "C" fn(usize, usize, usize) -> usize; 4]>();
+/// The location of the function table in the reserved RAM region.
+const TABLE_BASE_ADDRESS: usize = RESERVED_BASE_ADDRESS + RESERVED_SIZE - TABLE_SIZE;
 
 #[derive(Format)]
 pub enum Operation {
@@ -85,10 +116,6 @@ static mut FLASH_POINTER: usize = 0;
 pub struct FlashAlgorithm<const FLASH_SIZE: usize> {}
 
 impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
-    const TABLE_SIZE: usize = size_of::<[extern "C" fn(usize, usize, usize) -> usize; 4]>();
-    /// The function table is placed at the end of the reserved RAM region
-    const TABLE_BASE_ADDRESS: usize = RESERVED_BASE_ADDRESS + RESERVED_SIZE - Self::TABLE_SIZE;
-
     pub fn install(
         flash: &'static Mutex<
             CriticalSectionRawMutex,
@@ -101,13 +128,13 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
             Self::program_page,
             Self::erase_sector,
         ];
-        debug_assert_eq!(core::mem::size_of_val(&function_table), Self::TABLE_SIZE);
+        debug_assert_eq!(core::mem::size_of_val(&function_table), TABLE_SIZE);
         // SAFETY: These memory locations are reserved for the flash algorithm.
         // SAFETY: All values are pointers to static items.
         unsafe {
             core::ptr::copy_nonoverlapping(
                 function_table.as_ptr(),
-                Self::TABLE_BASE_ADDRESS as *mut _,
+                TABLE_BASE_ADDRESS as *mut _,
                 function_table.len(),
             );
             FLASH_POINTER = flash as *const _ as usize;
