@@ -41,7 +41,7 @@ pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> 
 }
 
 /// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
-pub fn with_spinlock_blocking<A, R>(func: impl FnOnce(A) -> R, args: A) -> R {
+pub fn with_spinlock_blocking<R>(func: impl FnOnce() -> R) -> R {
     let spinlock = loop {
         if let Some(spinlock) = Spinlock30::try_claim() {
             break spinlock;
@@ -49,7 +49,7 @@ pub fn with_spinlock_blocking<A, R>(func: impl FnOnce(A) -> R, args: A) -> R {
     };
     // Ensure the spinlock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
-    let result = func(args);
+    let result = func();
     // Ensure the spinlock is released after calling the flash operation
     fence(Ordering::SeqCst);
     drop(spinlock);

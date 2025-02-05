@@ -1,16 +1,17 @@
-use core::cell::RefCell;
+use core::{cell::RefCell, ops::Deref};
 
-use defmt::{trace, warn, Format};
+use defmt::{trace, unwrap, warn, Format};
 use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
 use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_rp::{
     flash::{Async, Flash, WRITE_SIZE},
-    peripherals::{DMA_CH0, FLASH},
-    Peripherals,
+    peripherals::FLASH,
 };
-use embassy_sync::blocking_mutex::{raw::NoopRawMutex, Mutex, NoopMutex};
-
-use super::spinlock::with_spinlock_blocking;
+use embassy_sync::blocking_mutex::{
+    raw::{CriticalSectionRawMutex, NoopRawMutex},
+    NoopMutex,
+};
+use embassy_sync::mutex::Mutex;
 
 /// Together with the
 /// ```yaml
@@ -72,6 +73,10 @@ impl core::convert::TryFrom<usize> for Operation {
     }
 }
 
+/// Used to share the flash instance with the flash algorithm.
+/// Can't be correctly typed because Flash is generic over the flash size.
+static mut FLASH_POINTER: usize = 0;
+
 /// Flash algorithm methods using a const generic for reuse across flash sizes.
 /// These methods must be statically invoked (via the function table), therefore
 /// we steal the required peripherals when constructing the flash instance.
@@ -81,20 +86,15 @@ pub struct FlashAlgorithm<const FLASH_SIZE: usize> {}
 
 impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
     const TABLE_SIZE: usize = size_of::<[extern "C" fn(usize, usize, usize) -> usize; 4]>();
-
-    pub fn new(
-        flash: FLASH,
-        dma: DMA_CH0,
-    ) -> (
-        Self,
-        Mutex<NoopRawMutex, RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+    /// The function table is placed at the end of the reserved RAM region
+    const TABLE_BASE_ADDRESS: usize = RESERVED_BASE_ADDRESS + RESERVED_SIZE - Self::TABLE_SIZE;
+    
+    pub fn install(
+        flash: &'static Mutex<
+            CriticalSectionRawMutex,
+            NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+        >,
     ) {
-        let flash = Flash::new(flash, dma);
-        let flash = NoopMutex::new(RefCell::new(flash));
-        (Self {}, flash)
-    }
-
-    pub fn install(self) {
         let function_table: [extern "C" fn(usize, usize, usize) -> usize; 4] = [
             Self::init,
             Self::uninit,
@@ -102,17 +102,33 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
             Self::erase_sector,
         ];
         debug_assert_eq!(core::mem::size_of_val(&function_table), Self::TABLE_SIZE);
-        // Place the function table at the end of the reserved RAM region
-        let base_address: usize = RESERVED_BASE_ADDRESS + RESERVED_SIZE - Self::TABLE_SIZE;
+        // SAFETY: These memory locations are reserved for the flash algorithm.
+        // SAFETY: All values are pointers to static items.
         unsafe {
             core::ptr::copy_nonoverlapping(
                 function_table.as_ptr(),
-                base_address as *mut _,
+                Self::TABLE_BASE_ADDRESS as *mut _,
                 function_table.len(),
             );
+            FLASH_POINTER = flash as *const _ as usize;
         }
     }
 
+    fn flash() -> &'static Mutex<
+        CriticalSectionRawMutex,
+        NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+    > {
+        // SAFETY: Must be invoked after the flash algorithm has been installed.
+        // SAFETY: Install must only be invoked once (such that the flash pointer 
+        // and function table share the same generics).
+        unsafe {
+            &*(FLASH_POINTER as *const _)
+        }
+    }
+
+    /// Retrieves flash from the mutex and invokes the provided function.
+    /// This function will panic if the mutex can not be acquired. It is
+    /// expected that access to this function is guarded by the spinlock.
     fn with_firmware_updater<'buffer, R>(
         buffer: &'buffer mut AlignedBuffer<WRITE_SIZE>,
         func: impl for<'updater, 'mutex> FnOnce(
@@ -122,23 +138,14 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
             >,
         ) -> R,
     ) -> R {
-        with_spinlock_blocking(
-            |_| {
-                // TODO: add types (use alias)
-                let (flash, dma) = unsafe {
-                    let p = Peripherals::steal();
-                    (p.FLASH, p.DMA_CH0)
-                };
-                let flash = Flash::new(flash, dma);
-                let flash = NoopMutex::new(RefCell::new(flash));
-                let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
-                    FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash),
-                    &mut buffer.0,
-                );
-                func(&mut firmware_updater)
-            },
-            (),
-        )
+        let flash = unwrap!(Self::flash()
+            .try_lock()
+            .map_err(|_| "Failed to acquire flash mutex"));
+        let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
+            FirmwareUpdaterConfig::from_linkerfile_blocking(flash.deref(), flash.deref()),
+            &mut buffer.0,
+        );
+        func(&mut firmware_updater)
     }
 
     extern "C" fn init(address: usize, _clock_or_zero: usize, operation: usize) -> usize {

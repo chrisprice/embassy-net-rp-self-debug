@@ -1,7 +1,7 @@
-use crate::boot_success::BootSuccessSignaler;
 use crate::debug::dap::Dap;
+use crate::debug::dap::DefaultDapLeds;
 use crate::flash::spinlock::with_spinlock;
-use dap_rs::dap::DapVersion;
+use dap_rs::dap::{DapLeds, DapVersion};
 use defmt::{debug, trace, warn};
 use embassy_net::{driver::Driver, tcp::TcpSocket};
 use embassy_time::Duration;
@@ -11,15 +11,13 @@ use static_cell::StaticCell;
 const PACKET_SIZE: usize = dap_rs::usb::DAP2_PACKET_SIZE as usize;
 
 pub struct DebugSocket {
-    boot_success_signaler: BootSuccessSignaler,
     port: u16,
     timeout: Option<Duration>,
 }
 
 impl DebugSocket {
-    pub fn new(boot_success_signaler: BootSuccessSignaler) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            boot_success_signaler,
             port: 1234,
             timeout: Some(Duration::from_secs(10)),
         }
@@ -35,7 +33,16 @@ impl DebugSocket {
         self
     }
 
-    pub async fn listen<D: Driver>(self, stack: &'static embassy_net::Stack<D>) -> ! {
+    pub async fn listen(self, stack: &'static embassy_net::Stack<impl Driver>) -> ! {
+        self.listen_with_leds(stack, DefaultDapLeds::default())
+            .await
+    }
+
+    pub async fn listen_with_leds(
+        self,
+        stack: &'static embassy_net::Stack<impl Driver>,
+        dap_leds: impl DapLeds,
+    ) -> ! {
         static SOCKET_RX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
         static SOCKET_TX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
         let rx_buffer = SOCKET_RX_BUFFER.init([0; PACKET_SIZE]);
@@ -43,7 +50,7 @@ impl DebugSocket {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(self.timeout);
 
-        let mut dap = Dap::new_with_leds(self.boot_success_signaler);
+        let mut dap = Dap::new(dap_leds);
 
         loop {
             debug!("Waiting for connection");

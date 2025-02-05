@@ -556,6 +556,7 @@ dependencies = [
  "dap-rs",
  "defmt",
  "defmt-rtt",
+ "embassy-boot",
  "embassy-boot-rp",
  "embassy-embedded-hal",
  "embassy-executor",

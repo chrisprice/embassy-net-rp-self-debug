@@ -3,9 +3,10 @@
 
 use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
+use dap_rs::dap::HostStatus;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
-use embassy_net_rp_self_debug::boot_success::BootSuccessMarker;
+use embassy_net_rp_self_debug::boot_success::{BootSuccessMarker, HostStatusSender};
 use embassy_net_rp_self_debug::debug::socket::DebugSocket;
 use embassy_net_rp_self_debug::{OtaDebugger, State};
 use embassy_rp::bind_interrupts;
@@ -13,6 +14,8 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH1, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::Duration;
 use rand::RngCore;
 use static_cell::StaticCell;
@@ -22,6 +25,8 @@ const FLASH_SIZE: usize = 2048 * 1024;
 bind_interrupts!(struct Irqs0 {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
+
+static BOOT_SUCCESS_SIGNAL: Signal<CriticalSectionRawMutex, HostStatus> = Signal::new();
 
 #[embassy_executor::task]
 async fn net_init(
@@ -89,16 +94,11 @@ async fn debug_task(
     stack: &'static Stack<cyw43::NetDriver<'static>>,
     debug_socket: DebugSocket,
 ) -> ! {
-    debug_socket.listen(stack).await
-}
-
-#[embassy_executor::task]
-async fn boot_success_task(boot_success_marker: BootSuccessMarker<FLASH_SIZE>, ota_debugger: &'static OtaDebugger<FLASH_SIZE>) {
-    boot_success_marker.run(ota_debugger).await
+    debug_socket.listen_with_leds(stack, HostStatusSender::new(&BOOT_SUCCESS_SIGNAL)).await
 }
 
 #[embassy_executor::main]
-async fn main(_s: Spawner) -> ! {
+async fn main(_spawner: Spawner) -> ! {
     let p = embassy_rp::init(Default::default());
 
     let mut pio = Pio::new(p.PIO0, Irqs0);
@@ -113,24 +113,26 @@ async fn main(_s: Spawner) -> ! {
     );
     let pin_23 = p.PIN_23;
 
+    static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE>> = StaticCell::new();
+    let state = OTA_DEBUGGER_STATE.init(State::new(p.FLASH, p.DMA_CH0));
 
-    static OTA_DEBUGGER_STATE: StaticCell<State> = StaticCell::new();
-    let state = OTA_DEBUGGER_STATE.init(State::new());
+    let ota_debugger = OtaDebugger::<FLASH_SIZE>::new(state, p.CORE1, |spawner, debug_socket| {
+        // Spawn the network initialization task on core1 so that it can continue
+        // running during debugging of core0.
+        spawner.must_spawn(net_init(spi, pin_23, debug_socket));
+    })
+    .await;
 
-    let (ota_debugger, boot_success_marker) = OtaDebugger::<FLASH_SIZE>::new(
-        state,
-        p.FLASH,
-        p.DMA_CH0,
-        p.CORE1,
-        |spawner, debug_socket| {
-            // TODO: Ensure debug_socket is !Send/!Sync
-            // Spawn the network initialization task on core1 so that it can continue
-            // running during debugging of core0.
-            spawner.must_spawn(net_init(spi, pin_23, debug_socket));
-        },
-    ).await;
+    ota_debugger
+        .with_flash_blocking(|flash| {
+            let mut x = [0u8; 4];
+            flash.blocking_read(0, &mut x)
+        })
+        .await;
 
-    boot_success_marker.run(&ota_debugger).await;
+    let boot_success_marker = BootSuccessMarker::new(&BOOT_SUCCESS_SIGNAL, &ota_debugger);
+    boot_success_marker.run().await;
+
 
     loop {
         nop();

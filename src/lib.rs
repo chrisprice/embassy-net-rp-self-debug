@@ -4,96 +4,112 @@ pub mod boot_success;
 pub mod debug;
 mod flash;
 
-use core::{cell::RefCell, future::Future};
+use core::{cell::RefCell, ops::{Deref, DerefMut}};
 
-use boot_success::{BootSuccessMarker, BootSuccessSignaler};
 use debug::socket::DebugSocket;
+use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
+use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
-    flash::{Async, Flash},
+    flash::{Async, Flash, WRITE_SIZE},
     multicore::{spawn_core1, Stack},
     peripherals::{CORE1, DMA_CH0, FLASH},
 };
 use embassy_sync::{
-    blocking_mutex::{raw::CriticalSectionRawMutex, NoopMutex},
-    signal::Signal,
+    blocking_mutex::{
+        raw::{CriticalSectionRawMutex, NoopRawMutex},
+        NoopMutex,
+    },
+    mutex::Mutex,
 };
-use flash::{
-    algorithm::FlashAlgorithm,
-    spinlock::{with_spinlock, with_spinlock_blocking},
-};
+use flash::{algorithm::FlashAlgorithm, spinlock::with_spinlock};
 use static_cell::StaticCell;
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
-pub struct State {
-    boot_success_signal: Signal<CriticalSectionRawMutex, ()>,
+pub struct State<const FLASH_SIZE: usize> {
+    flash: Mutex<
+        CriticalSectionRawMutex,
+        NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+    >,
 }
 
-impl State {
-    pub fn new() -> Self {
+impl<const FLASH_SIZE: usize> State<FLASH_SIZE> {
+    pub fn new(flash: FLASH, dma: DMA_CH0) -> Self {
         Self {
-            boot_success_signal: Signal::new(),
+            flash: Mutex::new(NoopMutex::new(RefCell::new(Flash::new(flash, dma)))),
         }
     }
 }
 
-// TODO: check type visibility
-
 pub struct OtaDebugger<const FLASH_SIZE: usize> {
-    _state: &'static State,
-    flash: NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+    _state: &'static State<FLASH_SIZE>,
 }
 impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
     pub async fn new(
-        state: &'static mut State,
-        flash: FLASH,
-        dma: DMA_CH0,
+        state: &'static mut State<FLASH_SIZE>,
         core1: CORE1,
         core1_init: impl FnOnce(Spawner, DebugSocket) + Send + 'static,
-    ) -> (Self, BootSuccessMarker<FLASH_SIZE>) {
-        let (flash_algorithm, flash) = FlashAlgorithm::new(flash, dma);
+    ) -> Self {
+        let instance = Self { _state: state };
 
         // By accepting the singleton CORE1 peripheral we're ensuring that this function isn't called twice.
         // Therefore we're not going to overwrite any existing algorithm.
-        flash_algorithm.install();
+        FlashAlgorithm::install(&instance._state.flash);
 
-        let instance = Self {
-            _state: state,
-            flash,
-        };
-
-        let boot_success_signaler = BootSuccessSignaler::new(&instance._state.boot_success_signal);
         spawn_core1(
             core1,
             unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
             move || {
                 let executor1 = EXECUTOR1.init(Executor::new());
                 executor1.run(|spawner| {
-                    core1_init(spawner, DebugSocket::new(boot_success_signaler));
+                    core1_init(spawner, DebugSocket::new());
                 });
             },
         );
 
-        let boot_success_marker = BootSuccessMarker::new(&instance._state.boot_success_signal);
-        (instance, boot_success_marker)
+        instance
     }
 
-    pub async fn with_flash<A, F: Future<Output = R>, R>(
+    /// Whilst this function is async, the underlying Flash instance is wrapped in a blocking
+    /// mutex to allow compatability with the flash algorithm (which currently runs without an
+    /// async executor).
+    pub async fn with_flash_blocking<R>(
         &self,
-        func: impl FnOnce(&NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>, A) -> F,
-        args: A,
+        func: impl FnOnce(&mut Flash<'static, FLASH, Async, FLASH_SIZE>) -> R,
     ) -> R {
-        with_spinlock(|()| func(&self.flash, args), ()).await
+        with_spinlock(
+            |_| async {
+                let flash = self._state.flash.lock().await;
+                flash.lock(|flash| func(flash.borrow_mut().deref_mut()))
+            },
+            (),
+        )
+        .await
     }
 
-    // TODO: Remove args, only async needs that (due to lack of async closure)
-    pub fn with_flash_blocking<A, R>(
+    pub async fn with_firmware_updater_blocking<'buffer, R>(
         &self,
-        func: impl FnOnce(&NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>, A) -> R,
-        args: A,
+        buffer: &'buffer mut AlignedBuffer<WRITE_SIZE>,
+        func: impl for<'updater, 'mutex> FnOnce(
+            &'updater mut embassy_boot_rp::BlockingFirmwareUpdater<
+                BlockingPartition<'mutex, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
+                BlockingPartition<'mutex, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
+            >,
+        ) -> R,
     ) -> R {
-        with_spinlock_blocking(|()| func(&self.flash, args), ())
+        with_spinlock(
+            |_| async {
+                let flash = self._state.flash.lock().await;
+                let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
+                    FirmwareUpdaterConfig::from_linkerfile_blocking(flash.deref(), flash.deref()),
+                    &mut buffer.0,
+                );
+                func(&mut firmware_updater)
+            },
+            (),
+        )
+        .await
     }
 }

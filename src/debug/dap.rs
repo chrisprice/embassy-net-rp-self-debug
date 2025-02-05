@@ -1,3 +1,4 @@
+use dap_rs::dap::HostStatus;
 use dap_rs::jtag::Jtag;
 use embassy_rp::pac::common::{Reg, RW};
 use embassy_rp::pac::syscfg::regs::Dbgforce;
@@ -16,9 +17,9 @@ pub struct Dap {
 }
 
 impl Dap {
-    pub fn new_with_leds<LEDS: DapLeds>(
-        leds: LEDS,
-    ) -> dap_rs::dap::Dap<'static, Dap, LEDS, embassy_time::Delay, Dap, Dap, Dap> {
+    pub fn new<T: DapLeds>(
+        leds: T,
+    ) -> dap_rs::dap::Dap<'static, Dap, T, embassy_time::Delay, Dap, Dap, Dap> {
         let inner = Dap {
             dbgforce: SYSCFG.dbgforce(),
         };
@@ -261,5 +262,14 @@ impl Swo for Dap {
 
     fn status(&mut self) -> dap_rs::swo::SwoStatus {
         unimplemented!("Swo::status not available")
+    }
+}
+
+#[derive(Default)]
+pub struct DefaultDapLeds();
+
+impl DapLeds for DefaultDapLeds {
+    fn react_to_host_status(&mut self, host_status: HostStatus) {
+        trace!("Host status: {:?}", host_status);
     }
 }

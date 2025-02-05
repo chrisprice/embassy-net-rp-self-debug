@@ -1,60 +1,67 @@
 use crate::OtaDebugger;
 use dap_rs::dap::{DapLeds, HostStatus};
-use defmt::{debug, unwrap};
-use embassy_boot_rp::FirmwareUpdaterConfig;
+use defmt::{trace, warn};
+use embassy_boot::FirmwareUpdaterError;
+use embassy_boot_rp::AlignedBuffer;
+use embassy_rp::flash::WRITE_SIZE;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 
-pub struct BootSuccessSignaler(&'static Signal<CriticalSectionRawMutex, ()>);
-
-impl BootSuccessSignaler {
-    pub fn new(signal: &'static Signal<CriticalSectionRawMutex, ()>) -> Self {
-        Self(signal)
-    }
+/// Makes a best effort to send host status without blocking.
+pub struct HostStatusSender<'a> {
+    signal: &'a Signal<CriticalSectionRawMutex, HostStatus>,
 }
 
-impl DapLeds for BootSuccessSignaler {
-    fn react_to_host_status(&mut self, host_status: HostStatus) {
-        match host_status {
-            HostStatus::Connected(true) => {
-                self.0.signal(());
-            }
-            _ => {}
-        }
-    }
-}
-
-pub struct BootSuccessMarker<const FLASH_SIZE: usize> {
-    signal: &'static Signal<CriticalSectionRawMutex, ()>,
-}
-
-impl<const FLASH_SIZE: usize> BootSuccessMarker<FLASH_SIZE> {
-    pub fn new(signal: &'static Signal<CriticalSectionRawMutex, ()>) -> Self {
+impl<'a> HostStatusSender<'a> {
+    pub fn new(signal: &'a Signal<CriticalSectionRawMutex, HostStatus>) -> Self {
         Self { signal }
     }
+}
 
-    pub async fn run(&self, ota_debugger: &OtaDebugger<FLASH_SIZE>) {
-        self.signal.wait().await;
-        debug!("Marking successful boot");
+impl<'a> DapLeds for HostStatusSender<'a> {
+    fn react_to_host_status(&mut self, host_status: HostStatus) {
+        self.signal.signal(host_status);
+    }
+}
 
-        ota_debugger
-            .with_flash_blocking(
-                |flash, _| {
-                    let mut buffer =
-                        embassy_boot_rp::AlignedBuffer([0; embassy_rp::flash::WRITE_SIZE]);
-                    let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
-                        FirmwareUpdaterConfig::from_linkerfile_blocking(flash, flash),
-                        &mut buffer.0,
-                    );
+/// Makes a best effort attempt to mark the firmware as booted when the host connects.
+/// If this fails, it will be retried on the next connection.
+pub struct BootSuccessMarker<'a, const FLASH_SIZE: usize> {
+    signal: &'a Signal<CriticalSectionRawMutex, HostStatus>,
+    ota_debugger: &'a OtaDebugger<FLASH_SIZE>,
+}
 
-                    // TODO: Confirm if we need this check - is it always safe to just mark_booted?
-                    match unwrap!(firmware_updater.get_state()) {
-                        embassy_boot_rp::State::Swap => {
-                            unwrap!(firmware_updater.mark_booted());
-                        }
-                        _ => {}
+impl<'a, const FLASH_SIZE: usize> BootSuccessMarker<'a, FLASH_SIZE> {
+    pub fn new(
+        signal: &'a Signal<CriticalSectionRawMutex, HostStatus>,
+        ota_debugger: &'a OtaDebugger<FLASH_SIZE>,
+    ) -> Self {
+        Self {
+            signal,
+            ota_debugger,
+        }
+    }
+
+    pub async fn run(&self) {
+        loop {
+            match self.signal.wait().await {
+                HostStatus::Connected(true) => match self.mark_booted().await {
+                    Ok(_) => {
+                        trace!("Marked booted");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!("Failed to mark booted: {:?}", e);
                     }
                 },
-                (),
-            );
+                _ => {}
+            }
+        }
+    }
+
+    async fn mark_booted(&self) -> Result<(), FirmwareUpdaterError> {
+        let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
+        self.ota_debugger
+            .with_firmware_updater_blocking(&mut buffer, |updater| updater.mark_booted())
+            .await
     }
 }
