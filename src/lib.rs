@@ -89,9 +89,8 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
         .await
     }
 
-    pub async fn with_firmware_updater_blocking<'buffer, R>(
+    pub async fn with_firmware_updater_blocking<R>(
         &self,
-        buffer: &'buffer mut AlignedBuffer<WRITE_SIZE>,
         func: impl for<'updater, 'mutex> FnOnce(
             &'updater mut embassy_boot_rp::BlockingFirmwareUpdater<
                 BlockingPartition<'mutex, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
@@ -101,6 +100,7 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
     ) -> R {
         with_spinlock(
             |_| async {
+                let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
                 let flash = self._state.flash.lock().await;
                 let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
                     FirmwareUpdaterConfig::from_linkerfile_blocking(flash.deref(), flash.deref()),

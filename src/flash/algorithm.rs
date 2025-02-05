@@ -88,7 +88,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
     const TABLE_SIZE: usize = size_of::<[extern "C" fn(usize, usize, usize) -> usize; 4]>();
     /// The function table is placed at the end of the reserved RAM region
     const TABLE_BASE_ADDRESS: usize = RESERVED_BASE_ADDRESS + RESERVED_SIZE - Self::TABLE_SIZE;
-    
+
     pub fn install(
         flash: &'static Mutex<
             CriticalSectionRawMutex,
@@ -119,18 +119,16 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
         NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
     > {
         // SAFETY: Must be invoked after the flash algorithm has been installed.
-        // SAFETY: Install must only be invoked once (such that the flash pointer 
+        // SAFETY: Install must only be invoked once (such that the flash pointer
         // and function table share the same generics).
-        unsafe {
-            &*(FLASH_POINTER as *const _)
-        }
+        unsafe { &*(FLASH_POINTER as *const _) }
     }
 
     /// Retrieves flash from the mutex and invokes the provided function.
     /// This function will panic if the mutex can not be acquired. It is
     /// expected that access to this function is guarded by the spinlock.
-    fn with_firmware_updater<'buffer, R>(
-        buffer: &'buffer mut AlignedBuffer<WRITE_SIZE>,
+    fn with_firmware_updater<R>(
+        // buffer: &'buffer mut AlignedBuffer<WRITE_SIZE>,
         func: impl for<'updater, 'mutex> FnOnce(
             &'updater mut embassy_boot_rp::BlockingFirmwareUpdater<
                 BlockingPartition<'mutex, NoopRawMutex, Flash<'static, FLASH, Async, FLASH_SIZE>>,
@@ -141,6 +139,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
         let flash = unwrap!(Self::flash()
             .try_lock()
             .map_err(|_| "Failed to acquire flash mutex"));
+        let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
         let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
             FirmwareUpdaterConfig::from_linkerfile_blocking(flash.deref(), flash.deref()),
             &mut buffer.0,
@@ -166,8 +165,8 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
         match operation {
             Operation::Program => {
                 trace!("Marking updated");
-                let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-                Self::with_firmware_updater(&mut state_buffer, |updater| {
+                // let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
+                Self::with_firmware_updater(|updater| {
                     updater.mark_updated().map_or_else(
                         |e| {
                             warn!("Failed to mark updated: {:?}", e);
@@ -191,8 +190,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
             address,
             address + count as usize
         );
-        let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
-        Self::with_firmware_updater(&mut state_buffer, |updater| {
+        Self::with_firmware_updater(|updater| {
             updater.write_firmware(address, buffer).map_or_else(
                 |e| {
                     warn!("Failed to write firmware: {:?}", e);

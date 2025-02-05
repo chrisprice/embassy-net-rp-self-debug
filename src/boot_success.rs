@@ -2,8 +2,6 @@ use crate::OtaDebugger;
 use dap_rs::dap::{DapLeds, HostStatus};
 use defmt::{trace, warn};
 use embassy_boot::FirmwareUpdaterError;
-use embassy_boot_rp::AlignedBuffer;
-use embassy_rp::flash::WRITE_SIZE;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 
 /// Makes a best effort to send host status without blocking.
@@ -59,9 +57,8 @@ impl<'a, const FLASH_SIZE: usize> BootSuccessMarker<'a, FLASH_SIZE> {
     }
 
     async fn mark_booted(&self) -> Result<(), FirmwareUpdaterError> {
-        let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
         self.ota_debugger
-            .with_firmware_updater_blocking(&mut buffer, |updater| updater.mark_booted())
+            .with_firmware_updater_blocking(|updater| updater.mark_booted())
             .await
     }
 }
