@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::asm::nop;
 use cyw43_pio::PioSpi;
 use dap_rs::dap::HostStatus;
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
 use embassy_net_rp_self_debug::boot_success::{BootSuccessMarker, HostStatusSender};
@@ -14,9 +14,10 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH1, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::watchdog::Watchdog;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::Duration;
+use embassy_time::{Duration, Ticker};
 use rand::RngCore;
 use static_cell::StaticCell;
 
@@ -97,8 +98,17 @@ async fn debug_task(
     debug_socket.listen_with_leds(stack, HostStatusSender::new(&BOOT_SUCCESS_SIGNAL)).await
 }
 
+#[embassy_executor::task]
+async fn feed_watchdog(mut watchdog: Watchdog) {
+    let mut ticker = Ticker::every(Duration::from_secs(1));
+    loop {
+        watchdog.feed();
+        ticker.next().await;
+    }
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     let mut pio = Pio::new(p.PIO0, Irqs0);
@@ -113,6 +123,11 @@ async fn main(_spawner: Spawner) -> ! {
     );
     let pin_23 = p.PIN_23;
 
+    let mut watchdog = Watchdog::new(p.WATCHDOG);
+    // TODO: find out if this is required - i.e. does probe-rs disable it anyway?
+    watchdog.pause_on_debug(true);
+    spawner.must_spawn(feed_watchdog(watchdog));
+
     static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE>> = StaticCell::new();
     let state = OTA_DEBUGGER_STATE.init(State::new(p.FLASH, p.DMA_CH0));
 
@@ -125,16 +140,12 @@ async fn main(_spawner: Spawner) -> ! {
 
     ota_debugger
         .with_flash_blocking(|flash| {
-            let mut x = [0u8; 4];
-            flash.blocking_read(0, &mut x)
+            let mut uid = [0u8; 8];
+            flash.blocking_unique_id(&mut uid).unwrap();
+            info!("UID: {:?}", uid);
         })
         .await;
 
     let boot_success_marker = BootSuccessMarker::new(&BOOT_SUCCESS_SIGNAL, &ota_debugger);
     boot_success_marker.run().await;
-
-
-    loop {
-        nop();
-    }
 }
