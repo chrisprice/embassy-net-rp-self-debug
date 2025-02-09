@@ -290,8 +290,10 @@ pub struct Leds();
 impl DapLeds for Leds {
     fn react_to_host_status(&mut self, host_status: dap::HostStatus) {
         match host_status {
-            dap::HostStatus::Connected(_) => trace!("Connected"),
-            dap::HostStatus::Running(_) => trace!("Running"),
+            dap::HostStatus::Connected(true) => trace!("Connected"),
+            dap::HostStatus::Connected(false) => trace!("Disconnected"),
+            dap::HostStatus::Running(true) => trace!("Running"),
+            dap::HostStatus::Running(false) => trace!("Stopped"),
         }
     }
 }
