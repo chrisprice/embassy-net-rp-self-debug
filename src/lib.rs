@@ -1,6 +1,5 @@
 #![no_std]
 
-pub mod boot_success;
 pub mod debug;
 mod flash;
 
