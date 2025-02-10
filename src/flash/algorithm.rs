@@ -1,4 +1,8 @@
-use core::{cell::RefCell, ops::Deref, sync::atomic::{AtomicBool, Ordering}};
+use core::{
+    cell::RefCell,
+    ops::Deref,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use defmt::{trace, unwrap, warn, Format};
 use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};

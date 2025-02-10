@@ -1,7 +1,8 @@
 //! Spinlock implementation copied from embassy-rp::multicore::critical_section_impl
 use core::{
     future::{poll_fn, Future},
-    sync::atomic::{fence, Ordering}, task::Poll,
+    sync::atomic::{fence, Ordering},
+    task::Poll,
 };
 
 use embassy_rp::pac;
@@ -47,17 +48,15 @@ pub async fn try_with_spinlock<A, F: Future<Output = R>, R>(
 }
 
 /// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
-pub async fn with_spinlock<A, F: Future<Output = R>, R>(
-    func: impl FnOnce(A) -> F,
-    args: A,
-) -> R {
+pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> F, args: A) -> R {
     let spinlock = poll_fn(|_| {
         if let Some(spinlock) = Spinlock30::try_claim() {
             Poll::Ready(spinlock)
         } else {
             Poll::Pending
         }
-    }).await;
+    })
+    .await;
     // Ensure the spinlock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
     let result = func(args).await;
