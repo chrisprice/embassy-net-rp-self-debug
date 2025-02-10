@@ -192,7 +192,6 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
         match operation {
             Operation::Program => {
                 trace!("Marking updated");
-                // let mut state_buffer = AlignedBuffer([0; WRITE_SIZE]);
                 Self::with_firmware_updater(|updater| {
                     updater.mark_updated().map_or_else(
                         |e| {
