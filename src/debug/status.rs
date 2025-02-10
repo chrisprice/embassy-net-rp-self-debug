@@ -15,7 +15,7 @@ impl DebugStatus {
     pub fn disconnected(&self) -> bool {
         *self.disconnected.borrow()
     }
-    pub fn dap_leds(self: &Self) -> DebugStatusInner<'_> {
+    pub fn dap_leds(&self) -> DebugStatusInner<'_> {
         DebugStatusInner { status: self }
     }
 }
@@ -25,6 +25,7 @@ pub struct DebugStatusInner<'a> {
 }
 
 impl DapLeds for DebugStatusInner<'_> {
+    #[allow(clippy::if_same_then_else)]
     fn react_to_host_status(&mut self, host_status: HostStatus) {
         match host_status {
             HostStatus::Connected(connected) => {

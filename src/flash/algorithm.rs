@@ -222,7 +222,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
         trace!(
             "Programming {:#x} to {:#x}",
             address,
-            address + count as usize
+            address + count
         );
         Self::with_firmware_updater(|updater| {
             updater.write_firmware(address, buffer).map_or_else(

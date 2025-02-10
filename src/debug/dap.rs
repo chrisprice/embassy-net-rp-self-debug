@@ -147,7 +147,7 @@ impl Swd<Dap> for Dap {
         // Read ack, 1 clock for turnaround and 3 for ACK
         let ack = self.rx::<4>() >> 1;
 
-        match dap_rs::swd::Ack::try_ok(ack as u8) {
+        match dap_rs::swd::Ack::try_ok(ack) {
             Ok(_) => {}
             Err(e) => {
                 // On non-OK ACK, target has released the bus but
@@ -184,7 +184,7 @@ impl Swd<Dap> for Dap {
 
         // Read ack, 1 clock for turnaround and 3 for ACK and 1 for turnaround
         let ack = (self.rx::<5>() >> 1) & 0b111;
-        match dap_rs::swd::Ack::try_ok(ack as u8) {
+        match dap_rs::swd::Ack::try_ok(ack) {
             Ok(_) => trace!("    ack ok"),
             Err(e) => {
                 // On non-OK ACK, target has released the bus but
