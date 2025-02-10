@@ -1,7 +1,7 @@
 //! Spinlock implementation copied from embassy-rp::multicore::critical_section_impl
 use core::{
-    future::Future,
-    sync::atomic::{fence, Ordering},
+    future::{poll_fn, Future},
+    sync::atomic::{fence, Ordering}, task::Poll,
 };
 
 use embassy_rp::pac;
@@ -22,14 +22,20 @@ use embassy_rp::pac;
 ///
 /// We do not use a critical section for this as it would severely limit the usefulness of the
 /// debugging (i.e. the debugger would deadlock on every critical section).
+///
+/// Additionally to faciliate sending application messages between cores (e.g. application
+/// network messages or higher-level network control). There needs to be a mechanism to prevent
+/// the mutexes used by these techniques from deadlocking. This is achieved by using the same
+/// spinlock mechanism.
 pub type Spinlock30 = Spinlock<30>;
 
 /// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
-pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> F, args: A) -> R {
-    let spinlock = loop {
-        if let Some(spinlock) = Spinlock30::try_claim() {
-            break spinlock;
-        }
+pub async fn try_with_spinlock<A, F: Future<Output = R>, R>(
+    func: impl FnOnce(A) -> F,
+    args: A,
+) -> Result<R, ()> {
+    let Some(spinlock) = Spinlock30::try_claim() else {
+        return Err(());
     };
     // Ensure the spinlock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
@@ -37,19 +43,24 @@ pub async fn with_spinlock<A, F: Future<Output = R>, R>(func: impl FnOnce(A) -> 
     // Ensure the spinlock is released after calling the flash operation
     fence(Ordering::SeqCst);
     drop(spinlock);
-    result
+    Ok(result)
 }
 
 /// Guarded access to flash to prevent potential deadlock - see [`crate::flash_new::FlashSpinlock`].
-pub fn with_spinlock_blocking<R>(func: impl FnOnce() -> R) -> R {
-    let spinlock = loop {
+pub async fn with_spinlock<A, F: Future<Output = R>, R>(
+    func: impl FnOnce(A) -> F,
+    args: A,
+) -> R {
+    let spinlock = poll_fn(|_| {
         if let Some(spinlock) = Spinlock30::try_claim() {
-            break spinlock;
+            Poll::Ready(spinlock)
+        } else {
+            Poll::Pending
         }
-    };
+    }).await;
     // Ensure the spinlock is acquired before calling the flash operation
     fence(Ordering::SeqCst);
-    let result = func();
+    let result = func(args).await;
     // Ensure the spinlock is released after calling the flash operation
     fence(Ordering::SeqCst);
     drop(spinlock);

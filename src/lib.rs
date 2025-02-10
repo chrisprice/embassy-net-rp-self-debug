@@ -3,7 +3,12 @@
 pub mod debug;
 mod flash;
 
-use core::{cell::RefCell, ops::{Deref, DerefMut}};
+pub use flash::spinlock::{try_with_spinlock, with_spinlock};
+
+use core::{
+    cell::RefCell,
+    ops::{Deref, DerefMut},
+};
 
 use debug::socket::DebugSocket;
 use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
@@ -21,7 +26,7 @@ use embassy_sync::{
     },
     mutex::Mutex,
 };
-use flash::{algorithm::FlashAlgorithm, spinlock::with_spinlock};
+use flash::algorithm::FlashAlgorithm;
 use static_cell::StaticCell;
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
