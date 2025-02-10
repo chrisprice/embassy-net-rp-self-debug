@@ -1,11 +1,11 @@
 use core::sync::atomic::Ordering;
 
 use crate::debug::dap::Dap;
-use crate::debug::dap::DefaultDapLeds;
+use crate::debug::status::DebugStatus;
 use crate::flash::algorithm::INIT_CALLED;
 use crate::flash::spinlock::with_spinlock;
 use cortex_m::asm::nop;
-use dap_rs::dap::{DapLeds, DapVersion};
+use dap_rs::dap::DapVersion;
 use defmt::{debug, trace, warn};
 use embassy_net::{driver::Driver, tcp::TcpSocket};
 use embassy_rp::watchdog::Watchdog;
@@ -40,15 +40,6 @@ impl DebugSocket {
     }
 
     pub async fn listen(self, stack: &'static embassy_net::Stack<impl Driver>) -> ! {
-        self.listen_with_leds(stack, DefaultDapLeds::default())
-            .await
-    }
-
-    pub async fn listen_with_leds(
-        self,
-        stack: &'static embassy_net::Stack<impl Driver>,
-        dap_leds: impl DapLeds,
-    ) -> ! {
         static SOCKET_RX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
         static SOCKET_TX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
         let rx_buffer = SOCKET_RX_BUFFER.init([0; PACKET_SIZE]);
@@ -56,9 +47,10 @@ impl DebugSocket {
         let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(self.timeout);
 
-        let mut dap = Dap::new(dap_leds);
-
         loop {
+            let debug_status = DebugStatus::default();
+            let mut dap = Dap::new(debug_status.dap_leds());
+
             debug!("Waiting for connection");
 
             if socket.accept(self.port).await.is_err() {
@@ -105,6 +97,10 @@ impl DebugSocket {
                                 break;
                             }
                         };
+
+                        if !debug_status.disconnected() {
+                            break;
+                        }
                     }
 
                     dap.suspend();
