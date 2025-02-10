@@ -1,9 +1,15 @@
+use core::sync::atomic::Ordering;
+
 use crate::debug::dap::Dap;
 use crate::debug::dap::DefaultDapLeds;
+use crate::flash::algorithm::INIT_CALLED;
 use crate::flash::spinlock::with_spinlock;
+use cortex_m::asm::nop;
 use dap_rs::dap::{DapLeds, DapVersion};
 use defmt::{debug, trace, warn};
 use embassy_net::{driver::Driver, tcp::TcpSocket};
+use embassy_rp::watchdog::Watchdog;
+use embassy_rp::Peripherals;
 use embassy_time::Duration;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
@@ -118,6 +124,22 @@ impl DebugSocket {
             };
 
             debug!("Connection closed");
+
+            if INIT_CALLED.load(Ordering::SeqCst) {
+                debug!("Flash algorithm detected. Rebooting...");
+                reboot();
+            }
         }
+    }
+}
+
+fn reboot() -> ! {
+    // Safety: This will reboot the device.
+    let p = unsafe { Peripherals::steal() };
+    let mut watchdog = Watchdog::new(p.WATCHDOG);
+    watchdog.trigger_reset();
+    // Not sure why trigger_reset doesn't return !, so we loop here.
+    loop {
+        nop();
     }
 }

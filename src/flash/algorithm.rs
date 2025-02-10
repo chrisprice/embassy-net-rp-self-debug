@@ -1,4 +1,4 @@
-use core::{cell::RefCell, ops::Deref};
+use core::{cell::RefCell, ops::Deref, sync::atomic::{AtomicBool, Ordering}};
 
 use defmt::{trace, unwrap, warn, Format};
 use embassy_boot_rp::{AlignedBuffer, FirmwareUpdaterConfig};
@@ -12,6 +12,9 @@ use embassy_sync::blocking_mutex::{
     NoopMutex,
 };
 use embassy_sync::mutex::Mutex;
+
+/// A flag to indicate the flash algorithm has been initialised.
+pub(crate) static INIT_CALLED: AtomicBool = AtomicBool::new(false);
 
 /// The pertinent parts of the probe-rs config are included below,
 /// the associated code statically asserts the derivation of the
@@ -175,6 +178,7 @@ impl<const FLASH_SIZE: usize> FlashAlgorithm<FLASH_SIZE> {
     }
 
     extern "C" fn init(address: usize, _clock_or_zero: usize, operation: usize) -> usize {
+        INIT_CALLED.store(true, Ordering::SeqCst);
         match Operation::try_from(operation) {
             Ok(operation) => {
                 trace!("Init: {:#x}, {:?}", address, operation);
