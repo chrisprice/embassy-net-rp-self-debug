@@ -12,7 +12,6 @@ use embassy_rp::watchdog::Watchdog;
 use embassy_rp::Peripherals;
 use embassy_time::Duration;
 use embedded_io_async::Write;
-use static_cell::StaticCell;
 
 const PACKET_SIZE: usize = dap_rs::usb::DAP2_PACKET_SIZE as usize;
 
@@ -40,11 +39,9 @@ impl DebugSocket {
     }
 
     pub async fn listen(self, stack: &'static embassy_net::Stack<impl Driver>) -> ! {
-        static SOCKET_RX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
-        static SOCKET_TX_BUFFER: StaticCell<[u8; PACKET_SIZE]> = StaticCell::new();
-        let rx_buffer = SOCKET_RX_BUFFER.init([0; PACKET_SIZE]);
-        let tx_buffer = SOCKET_TX_BUFFER.init([0; PACKET_SIZE]);
-        let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
+        let mut rx_buffer = [0; PACKET_SIZE];
+        let mut tx_buffer = [0; PACKET_SIZE];
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(self.timeout);
 
         loop {

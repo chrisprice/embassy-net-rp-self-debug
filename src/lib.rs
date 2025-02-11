@@ -29,51 +29,53 @@ use embassy_sync::{
 use flash::algorithm::FlashAlgorithm;
 use static_cell::StaticCell;
 
-static mut CORE1_STACK: Stack<4096> = Stack::new();
-static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
-
-pub struct State<const FLASH_SIZE: usize> {
+pub struct State<const FLASH_SIZE: usize, const STACK_SIZE: usize> {
+    core1_stack: Stack<STACK_SIZE>,
     flash: Mutex<
         CriticalSectionRawMutex,
         NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
     >,
 }
 
-impl<const FLASH_SIZE: usize> State<FLASH_SIZE> {
+impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> State<FLASH_SIZE, STACK_SIZE> {
     pub fn new(flash: FLASH, dma: DMA_CH0) -> Self {
         Self {
             flash: Mutex::new(NoopMutex::new(RefCell::new(Flash::new(flash, dma)))),
+            core1_stack: Stack::new(),
         }
     }
 }
 
-pub struct OtaDebugger<const FLASH_SIZE: usize> {
-    _state: &'static State<FLASH_SIZE>,
+pub struct OtaDebugger<const FLASH_SIZE: usize, const STACK_SIZE: usize> {
+    flash: &'static Mutex<
+        CriticalSectionRawMutex,
+        NoopMutex<RefCell<Flash<'static, FLASH, Async, FLASH_SIZE>>>,
+    >,
 }
-impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
+impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, STACK_SIZE> {
     pub async fn new(
-        state: &'static mut State<FLASH_SIZE>,
+        state: &'static mut State<FLASH_SIZE, STACK_SIZE>,
         core1: CORE1,
         core1_init: impl FnOnce(Spawner, DebugSocket) + Send + 'static,
     ) -> Self {
-        let instance = Self { _state: state };
-
         // By accepting the singleton CORE1 peripheral we're ensuring that this function isn't called twice.
         // Therefore we're not going to overwrite any existing algorithm.
-        FlashAlgorithm::install(&instance._state.flash);
+        FlashAlgorithm::install(&state.flash);
 
         spawn_core1(
             core1,
-            unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+            unsafe { &mut *core::ptr::addr_of_mut!(state.core1_stack) },
             move || {
-                let executor1 = EXECUTOR1.init(Executor::new());
-                executor1.run(|spawner| {
+                static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+                EXECUTOR.init(Executor::new()).run(|spawner| {
                     core1_init(spawner, DebugSocket::new());
-                });
+                })
             },
         );
 
-        instance
+        Self {
+            flash: &state.flash,
+        }
     }
 
     /// Whilst this function is async, the underlying Flash instance is wrapped in a blocking
@@ -85,7 +87,7 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
     ) -> R {
         with_spinlock(
             |_| async {
-                let flash = self._state.flash.lock().await;
+                let flash = self.flash.lock().await;
                 flash.lock(|flash| func(flash.borrow_mut().deref_mut()))
             },
             (),
@@ -105,7 +107,7 @@ impl<const FLASH_SIZE: usize> OtaDebugger<FLASH_SIZE> {
         with_spinlock(
             |_| async {
                 let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
-                let flash = self._state.flash.lock().await;
+                let flash = self.flash.lock().await;
                 let mut firmware_updater = embassy_boot_rp::BlockingFirmwareUpdater::new(
                     FirmwareUpdaterConfig::from_linkerfile_blocking(flash.deref(), flash.deref()),
                     &mut buffer.0,
