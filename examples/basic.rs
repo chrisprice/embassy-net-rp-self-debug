@@ -2,7 +2,8 @@
 #![no_main]
 
 use cyw43_pio::PioSpi;
-use defmt::info;
+use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
 use embassy_net_rp_self_debug::debug::socket::DebugSocket;
@@ -14,6 +15,7 @@ use embassy_rp::peripherals::{DMA_CH1, PIN_23, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::watchdog::Watchdog;
 use embassy_time::{Duration, Ticker};
+use panic_probe as _;
 use rand::RngCore;
 use static_cell::StaticCell;
 
@@ -64,10 +66,10 @@ async fn net_init(
 
     spawner.must_spawn(debug_task(stack, debug_socket));
 
-    control
+    unwrap!(control
         .join_wpa2("ssid", "passphrase")
         .await
-        .map_err(|_| "failed to join network");
+        .map_err(|_| "failed to join network"));
 
     stack.wait_config_up().await;
 }
@@ -135,7 +137,7 @@ async fn main(spawner: Spawner) {
     ota_debugger
         .with_flash_blocking(|flash| {
             let mut uid = [0u8; 8];
-            flash.blocking_unique_id(&mut uid).unwrap();
+            unwrap!(flash.blocking_unique_id(&mut uid));
             info!("UID: {:?}", uid);
         })
         .await;

@@ -1,9 +1,1 @@
 target
-
-# Makefile:
-algo.yaml
-flash.o
-flash.s
-flash.linked
-flash.text
-flash.base64
