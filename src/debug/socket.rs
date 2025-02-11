@@ -1,6 +1,7 @@
 use core::sync::atomic::Ordering;
 
 use crate::debug::dap::Dap;
+use crate::debug::dhcsr::DHCSR_CLEAR_DEBUGEN;
 use crate::debug::status::DebugStatus;
 use crate::flash::algorithm::INIT_CALLED;
 use crate::flash::spinlock::with_spinlock;
@@ -96,6 +97,14 @@ impl DebugSocket {
                         };
 
                         if !debug_status.disconnected() {
+                            let mut response_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
+                            let n = dap.process_command(
+                                &DHCSR_CLEAR_DEBUGEN,
+                                &mut response_buffer,
+                                DapVersion::V2,
+                            );
+                            trace!("Responding with {}", response_buffer[..n]);
+                            // TODO assert success?
                             break;
                         }
                     }
