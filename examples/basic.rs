@@ -124,10 +124,10 @@ async fn main(spawner: Spawner) {
     watchdog.pause_on_debug(true);
     spawner.must_spawn(feed_watchdog(watchdog));
 
-    static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE>> = StaticCell::new();
+    static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE, {32 * 1024}>> = StaticCell::new();
     let state = OTA_DEBUGGER_STATE.init_with(|| State::new(p.FLASH, p.DMA_CH0));
     
-    let ota_debugger = OtaDebugger::<FLASH_SIZE>::new(state, p.CORE1, |spawner, debug_socket| {
+    let ota_debugger = OtaDebugger::new(state, p.CORE1, |spawner, debug_socket| {
         // Spawn the network initialization task on core1 so that it can continue
         // running during debugging of core0.
         spawner.must_spawn(net_init(spi, pin_23, debug_socket));
