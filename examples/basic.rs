@@ -2,7 +2,7 @@
 #![no_main]
 
 use cyw43_pio::PioSpi;
-use defmt::{info, unwrap};
+use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::{Config, DhcpConfig, Stack, StackResources};
@@ -31,6 +31,8 @@ async fn net_init(
     pwr: PIN_23,
     mut debug_socket: DebugSocket,
 ) {
+    info!("Initializing network");
+    
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init_with(|| cyw43::State::new());
 
@@ -72,6 +74,8 @@ async fn net_init(
         .map_err(|_| "failed to join network"));
 
     stack.wait_config_up().await;
+
+    info!("Network up {}", stack.config_v4().unwrap().address);
 }
 
 #[embassy_executor::task]
