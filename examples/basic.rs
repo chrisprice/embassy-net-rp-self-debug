@@ -120,7 +120,6 @@ async fn main(spawner: Spawner) {
     let pin_23 = p.PIN_23;
 
     let mut watchdog = Watchdog::new(p.WATCHDOG);
-    // TODO: find out if this is required - i.e. does probe-rs disable it anyway?
     watchdog.pause_on_debug(true);
     spawner.must_spawn(feed_watchdog(watchdog));
 
