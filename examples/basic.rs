@@ -53,10 +53,10 @@ async fn net_init(
 
     static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    let stack = &*STACK.init_with(|| Stack::new(
         net_device,
         config,
-        RESOURCES.init(StackResources::<8>::new()),
+        RESOURCES.init_with(|| StackResources::<8>::new()),
         RoscRng.next_u64(),
     ));
 
@@ -125,8 +125,8 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(feed_watchdog(watchdog));
 
     static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE>> = StaticCell::new();
-    let state = OTA_DEBUGGER_STATE.init(State::new(p.FLASH, p.DMA_CH0));
-
+    let state = OTA_DEBUGGER_STATE.init_with(|| State::new(p.FLASH, p.DMA_CH0));
+    
     let ota_debugger = OtaDebugger::<FLASH_SIZE>::new(state, p.CORE1, |spawner, debug_socket| {
         // Spawn the network initialization task on core1 so that it can continue
         // running during debugging of core0.
