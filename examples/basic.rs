@@ -67,7 +67,7 @@ async fn net_init(
     spawner.must_spawn(debug_task(stack, debug_socket));
 
     unwrap!(control
-        .join_wpa2("ssid", "passphrase")
+        .join_wpa2(env!("WIFI_SSID"), env!("WIFI_PASSPHRASE"))
         .await
         .map_err(|_| "failed to join network"));
 
