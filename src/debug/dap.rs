@@ -81,16 +81,16 @@ impl Dap {
 
     #[inline(always)]
     fn write_bit(&mut self, bit: u8) {
-        self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        self.dbgforce.modify(|r| r.set_proc1_swdi(bit != 0));
-        self.dbgforce.modify(|r| r.set_proc1_swclk(true));
+        self.dbgforce.modify(|r| r.set_proc0_swclk(false));
+        self.dbgforce.modify(|r| r.set_proc0_swdi(bit != 0));
+        self.dbgforce.modify(|r| r.set_proc0_swclk(true));
     }
 
     #[inline(always)]
     fn read_bit(&mut self) -> u8 {
-        self.dbgforce.modify(|r| r.set_proc1_swclk(false));
-        let bit = self.dbgforce.read().proc1_swdo() as u8;
-        self.dbgforce.modify(|r| r.set_proc1_swclk(true));
+        self.dbgforce.modify(|r| r.set_proc0_swclk(false));
+        let bit = self.dbgforce.read().proc0_swdo() as u8;
+        self.dbgforce.modify(|r| r.set_proc0_swclk(true));
 
         bit
     }
@@ -107,7 +107,7 @@ impl Dependencies<Dap, Dap> for Dap {
     }
 
     fn process_swj_sequence(&mut self, data: &[u8], bits: usize) {
-        self.dbgforce.modify(|r| r.set_proc1_attach(true));
+        self.dbgforce.modify(|r| r.set_proc0_attach(true));
         self.txn(data, bits);
     }
 
@@ -116,7 +116,7 @@ impl Dependencies<Dap, Dap> for Dap {
     }
 
     fn high_impedance_mode(&mut self) {
-        self.dbgforce.modify(|r| r.set_proc1_attach(false));
+        self.dbgforce.modify(|r| r.set_proc0_attach(false));
     }
 }
 
