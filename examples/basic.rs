@@ -32,7 +32,7 @@ async fn net_init(
     mut debug_socket: DebugSocket,
 ) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
-    let state = STATE.init(cyw43::State::new());
+    let state = STATE.init_with(|| cyw43::State::new());
 
     let fw: &[u8; 230321] = include_bytes!("./network/43439A0.bin");
     let clm: &[u8; 4752] = include_bytes!("./network/43439A0_clm.bin");
