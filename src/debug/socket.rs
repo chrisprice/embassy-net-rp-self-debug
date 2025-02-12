@@ -47,7 +47,7 @@ impl DebugSocket {
 
         loop {
             let debug_status = DebugStatus::default();
-            let mut dap = Dap::new(debug_status.dap_leds());
+            let mut dap = Dap::core0(debug_status.dap_leds());
 
             debug!("Waiting for connection");
 

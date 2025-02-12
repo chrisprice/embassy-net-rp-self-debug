@@ -12,22 +12,81 @@ use dap_rs::{
 use defmt::trace;
 use embassy_rp::pac::SYSCFG;
 
-pub struct Dap {
-    dbgforce: Reg<Dbgforce, RW>,
+pub struct Dap<CORE> {
+    core: CORE,
 }
 
-impl Dap {
-    pub fn new<T: DapLeds>(
+trait Core {
+    fn set_swclk(&mut self, value: bool);
+    fn set_swdi(&mut self, value: bool);
+    fn swdo(&self) -> bool;
+    fn set_attach(&mut self, value: bool);
+}
+
+pub struct Core0(Reg<Dbgforce, RW>);
+
+impl Core for Core0 {
+    fn set_swclk(&mut self, value: bool) {
+        self.0.modify(|r| r.set_proc0_swclk(value));
+    }
+
+    fn set_swdi(&mut self, value: bool) {
+        self.0.modify(|r| r.set_proc0_swdi(value));
+    }
+
+    fn swdo(&self) -> bool {
+        self.0.read().proc0_swdo()
+    }
+
+    fn set_attach(&mut self, value: bool) {
+        self.0.modify(|r| r.set_proc0_attach(value));
+    }
+}
+pub struct Core1(Reg<Dbgforce, RW>);
+
+impl Core for Core1 {
+    fn set_swclk(&mut self, value: bool) {
+        self.0.modify(|r| r.set_proc1_swclk(value));
+    }
+
+    fn set_swdi(&mut self, value: bool) {
+        self.0.modify(|r| r.set_proc1_swdi(value));
+    }
+
+    fn swdo(&self) -> bool {
+        self.0.read().proc1_swdo()
+    }
+
+    fn set_attach(&mut self, value: bool) {
+        self.0.modify(|r| r.set_proc1_attach(value));
+    }
+}
+
+impl Dap<Core0> {
+    pub fn core0<T: DapLeds>(
         leds: T,
-    ) -> dap_rs::dap::Dap<'static, Dap, T, embassy_time::Delay, Dap, Dap, Dap> {
-        let inner = Dap {
-            dbgforce: SYSCFG.dbgforce(),
+    ) -> dap_rs::dap::Dap<'static, Dap<Core0>, T, embassy_time::Delay, Dap<Core0>, Dap<Core0>, Dap<Core0>>
+    {
+        let inner = Self {
+            core: Core0(SYSCFG.dbgforce()),
         };
         dap_rs::dap::Dap::new(inner, leds, embassy_time::Delay, None, "")
     }
 }
 
-impl Dap {
+impl Dap<Core1> {
+    pub fn core1<T: DapLeds>(
+        leds: T,
+    ) -> dap_rs::dap::Dap<'static, Dap<Core1>, T, embassy_time::Delay, Dap<Core1>, Dap<Core1>, Dap<Core1>>
+    {
+        let inner = Self {
+            core: Core1(SYSCFG.dbgforce()),
+        };
+        dap_rs::dap::Dap::new(inner, leds, embassy_time::Delay, None, "")
+    }
+}
+
+impl<CORE: Core> Dap<CORE> {
     pub fn txn(&mut self, data: &[u8], mut bits: usize) {
         for byte in data {
             let mut byte = *byte;
@@ -81,22 +140,22 @@ impl Dap {
 
     #[inline(always)]
     fn write_bit(&mut self, bit: u8) {
-        self.dbgforce.modify(|r| r.set_proc0_swclk(false));
-        self.dbgforce.modify(|r| r.set_proc0_swdi(bit != 0));
-        self.dbgforce.modify(|r| r.set_proc0_swclk(true));
+        self.core.set_swclk(false);
+        self.core.set_swdi(bit != 0);
+        self.core.set_swclk(true);
     }
 
     #[inline(always)]
     fn read_bit(&mut self) -> u8 {
-        self.dbgforce.modify(|r| r.set_proc0_swclk(false));
-        let bit = self.dbgforce.read().proc0_swdo() as u8;
-        self.dbgforce.modify(|r| r.set_proc0_swclk(true));
+        self.core.set_swclk(false);
+        let bit = self.core.swdo() as u8;
+        self.core.set_swclk(true);
 
         bit
     }
 }
 
-impl Dependencies<Dap, Dap> for Dap {
+impl<CORE: Core> Dependencies<Dap<CORE>, Dap<CORE>> for Dap<CORE> {
     fn process_swj_pins(
         &mut self,
         _output: swj::Pins,
@@ -107,7 +166,7 @@ impl Dependencies<Dap, Dap> for Dap {
     }
 
     fn process_swj_sequence(&mut self, data: &[u8], bits: usize) {
-        self.dbgforce.modify(|r| r.set_proc0_attach(true));
+        self.core.set_attach(true);
         self.txn(data, bits);
     }
 
@@ -116,11 +175,11 @@ impl Dependencies<Dap, Dap> for Dap {
     }
 
     fn high_impedance_mode(&mut self) {
-        self.dbgforce.modify(|r| r.set_proc0_attach(false));
+        self.core.set_attach(false);
     }
 }
 
-impl Jtag<Dap> for Dap {
+impl<CORE> Jtag<Dap<CORE>> for Dap<CORE> {
     const AVAILABLE: bool = false;
 
     fn sequences(&mut self, _data: &[u8], _rxbuf: &mut [u8]) -> u32 {
@@ -132,7 +191,7 @@ impl Jtag<Dap> for Dap {
     }
 }
 
-impl Swd<Dap> for Dap {
+impl<CORE: Core> Swd<Dap<CORE>> for Dap<CORE> {
     const AVAILABLE: bool = true;
 
     fn read_inner(
@@ -219,7 +278,7 @@ impl Swd<Dap> for Dap {
     }
 }
 
-impl Swo for Dap {
+impl<CORE> Swo for Dap<CORE> {
     fn set_transport(&mut self, _transport: dap_rs::swo::SwoTransport) {
         unimplemented!("Swo::set_transport not available")
     }
