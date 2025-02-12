@@ -39,6 +39,14 @@ async fn net_init(
     let fw: &[u8; 230321] = include_bytes!("./network/43439A0.bin");
     let clm: &[u8; 4752] = include_bytes!("./network/43439A0_clm.bin");
 
+    // To make flashing faster for development, you may want to flash the firmwares independently
+    // at hardcoded addresses, instead of baking them into the program with `include_bytes!`:
+    //     probe-rs download examples/network/43439A0.bin --binary-format bin --chip RP2040 --base-address 0x10108000
+    //     probe-rs download examples/network/43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x10148000
+    // let fw = unsafe { core::slice::from_raw_parts(0x10108000 as *const u8, 230321) };
+    // let clm = unsafe { core::slice::from_raw_parts(0x10148000 as *const u8, 4752) };
+
+
     let (net_device, mut control, runner) =
         cyw43::new(state, Output::new(pwr, Level::Low), spi, fw).await;
 
