@@ -270,6 +270,11 @@ pub struct DefaultDapLeds();
 
 impl DapLeds for DefaultDapLeds {
     fn react_to_host_status(&mut self, host_status: HostStatus) {
-        trace!("Host status: {:?}", host_status);
+        match host_status {
+            HostStatus::Connected(true) => trace!("Host connected"),
+            HostStatus::Connected(false) => trace!("Host disconnected"),
+            HostStatus::Running(true) => trace!("Target running"),
+            HostStatus::Running(false) => trace!("Target halted"),
+        }
     }
 }
