@@ -67,7 +67,8 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
             unsafe { &mut *core::ptr::addr_of_mut!(state.core1_stack) },
             move || {
                 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-                EXECUTOR.init(Executor::new()).run(|spawner| {
+                let executor = EXECUTOR.init_with(|| Executor::new());
+                executor.run(|spawner| {
                     core1_init(spawner, DebugSocket::new());
                 })
             },
