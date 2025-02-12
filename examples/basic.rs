@@ -133,11 +133,11 @@ async fn main(spawner: Spawner) {
     })
     .await;
 
-    ota_debugger
-        .with_flash_blocking(|flash| {
-            let mut uid = [0u8; 8];
-            unwrap!(flash.blocking_unique_id(&mut uid));
-            info!("UID: {:?}", uid);
-        })
-        .await;
+    if ota_debugger
+        .with_firmware_updater_blocking(|flash| flash.mark_booted())
+        .await
+        .is_err()
+    {
+        warn!("Failed to mark booted");
+    }
 }
