@@ -47,7 +47,7 @@ impl DebugSocket {
 
         loop {
             let debug_status = DebugStatus::default();
-            let mut dap = Dap::core0(debug_status.dap_leds());
+            let mut dap = Dap::core1(debug_status.dap_leds());
 
             debug!("Waiting for connection");
 
@@ -77,7 +77,7 @@ impl DebugSocket {
                             }
                         };
 
-                        trace!("Received {} bytes", n);
+                        trace!("Received {} bytes, command {}", n, request_buffer[0]);
 
                         let mut response_buffer = [0; dap_rs::usb::DAP2_PACKET_SIZE as usize];
                         let n = dap.process_command(

@@ -130,12 +130,13 @@ async fn main(spawner: Spawner) {
     static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE, {32 * 1024}>> = StaticCell::new();
     let state = OTA_DEBUGGER_STATE.init_with(|| State::new(p.FLASH, p.DMA_CH0));
     
-    let ota_debugger = OtaDebugger::new(state, p.CORE1, |spawner, debug_socket| {
+    let (ota_debugger, debug_socket) = OtaDebugger::new(state, p.CORE1, |_spawner| {
         // Spawn the network initialization task on core1 so that it can continue
         // running during debugging of core0.
-        spawner.must_spawn(net_init(spi, pin_23, debug_socket));
     })
     .await;
+
+    spawner.must_spawn(net_init(spi, pin_23, debug_socket));
 
     if ota_debugger
         .with_firmware_updater_blocking(|flash| flash.mark_booted())

@@ -56,8 +56,8 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
     pub async fn new(
         state: &'static mut State<FLASH_SIZE, STACK_SIZE>,
         core1: CORE1,
-        core1_init: impl FnOnce(Spawner, DebugSocket) + Send + 'static,
-    ) -> Self {
+        core1_init: impl FnOnce(Spawner) + Send + 'static,
+    ) -> (Self, DebugSocket) {
         // By accepting the singleton CORE1 peripheral we're ensuring that this function isn't called twice.
         // Therefore we're not going to overwrite any existing algorithm.
         FlashAlgorithm::install(&state.flash);
@@ -69,14 +69,17 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
                 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
                 let executor = EXECUTOR.init_with(|| Executor::new());
                 executor.run(|spawner| {
-                    core1_init(spawner, DebugSocket::new());
+                    core1_init(spawner);
                 })
             },
         );
 
-        Self {
-            flash: &state.flash,
-        }
+        (
+            Self {
+                flash: &state.flash,
+            },
+            DebugSocket::new(),
+        )
     }
 
     /// Whilst this function is async, the underlying Flash instance is wrapped in a blocking
