@@ -119,26 +119,25 @@ async fn feed_watchdog(mut watchdog: Watchdog) {
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    let mut pio = Pio::new(p.PIO0, Irqs0);
-    let spi = PioSpi::new(
-        &mut pio.common,
-        pio.sm0,
-        pio.irq0,
-        Output::new(p.PIN_25, Level::High),
-        p.PIN_24,
-        p.PIN_29,
-        p.DMA_CH1,
-    );
-    let pin_23 = p.PIN_23;
-
     let mut watchdog = Watchdog::new(p.WATCHDOG);
     watchdog.pause_on_debug(true);
     spawner.must_spawn(feed_watchdog(watchdog));
 
-    static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE, {32 * 1024}>> = StaticCell::new();
+    static OTA_DEBUGGER_STATE: StaticCell<State<FLASH_SIZE, { 32 * 1024 }>> = StaticCell::new();
     let state = OTA_DEBUGGER_STATE.init_with(|| State::new(p.FLASH, p.DMA_CH0));
-    
+
     let ota_debugger = OtaDebugger::new(state, p.CORE1, |spawner, debug_socket| {
+        let mut pio = Pio::new(p.PIO0, Irqs0);
+        let spi = PioSpi::new(
+            &mut pio.common,
+            pio.sm0,
+            pio.irq0,
+            Output::new(p.PIN_25, Level::High),
+            p.PIN_24,
+            p.PIN_29,
+            p.DMA_CH1,
+        );
+        let pin_23 = p.PIN_23;
         // Spawn the network initialization task on core1 so that it can continue
         // running during debugging of core0.
         spawner.must_spawn(net_init(spi, pin_23, debug_socket));
