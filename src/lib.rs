@@ -63,6 +63,12 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
         // Therefore we're not going to overwrite any existing algorithm.
         FlashAlgorithm::install(&state.flash);
 
+        // Don't pause the timer when the debugger is attached otherwise the core1 executor will effectively be paused
+        embassy_rp::pac::TIMER.dbgpause().write(|w| {
+            w.set_dbg0(false);
+            w.set_dbg1(false);
+        });
+
         spawn_core1(
             core1,
             unsafe { &mut *core::ptr::addr_of_mut!(state.core1_stack) },
