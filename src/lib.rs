@@ -80,6 +80,10 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
                     interrupt::TIMER_IRQ_2.enable();
                     interrupt::TIMER_IRQ_3.enable();
                 }
+                // Enable the DMA interrupt so that core1 can fan out the DMA status even if core0 is halted
+                unsafe {
+                    interrupt::DMA_IRQ_0.enable();
+                }
                 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
                 let executor = EXECUTOR.init_with(|| Executor::new());
                 executor.run(|spawner| {
@@ -87,10 +91,12 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
                 })
             },
         );
+        // Not sure if duplicate processing is necessarily a problem...
         interrupt::TIMER_IRQ_0.disable();
         interrupt::TIMER_IRQ_1.disable();
         interrupt::TIMER_IRQ_2.disable();
         interrupt::TIMER_IRQ_3.disable();
+        interrupt::DMA_IRQ_0.disable();
 
         Self {
             flash: &state.flash,
