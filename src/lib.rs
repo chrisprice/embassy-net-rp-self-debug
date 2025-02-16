@@ -16,6 +16,7 @@ use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
     flash::{Async, Flash, WRITE_SIZE},
+    interrupt::{self, InterruptExt},
     multicore::{spawn_core1, Stack},
     peripherals::{CORE1, DMA_CH0, FLASH},
 };
@@ -66,6 +67,13 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
             core1,
             unsafe { &mut *core::ptr::addr_of_mut!(state.core1_stack) },
             move || {
+                // Enable the timer interrupts so that the thread executors on both cores are awoken even if core0 is halted
+                unsafe {
+                    interrupt::TIMER_IRQ_0.enable();
+                    interrupt::TIMER_IRQ_1.enable();
+                    interrupt::TIMER_IRQ_2.enable();
+                    interrupt::TIMER_IRQ_3.enable();
+                }
                 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
                 let executor = EXECUTOR.init_with(|| Executor::new());
                 executor.run(|spawner| {
@@ -73,6 +81,10 @@ impl<const FLASH_SIZE: usize, const STACK_SIZE: usize> OtaDebugger<FLASH_SIZE, S
                 })
             },
         );
+        interrupt::TIMER_IRQ_0.disable();
+        interrupt::TIMER_IRQ_1.disable();
+        interrupt::TIMER_IRQ_2.disable();
+        interrupt::TIMER_IRQ_3.disable();
 
         Self {
             flash: &state.flash,
